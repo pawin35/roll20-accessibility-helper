@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Roll20 Accessibility Helper",
+  "version": "1.1.0",
+  "description": "Unofficial accessibility improvements for Roll20: replaces mouse-only interactions, such as compendium drag-and-drop, with keyboard- and screen-reader-accessible controls.",
+  "content_scripts": [
+    {
+      "matches": ["https://app.roll20.net/characters/sheet/*"],
+      "js": [
+        "lib/core.js",
+        "features/compendium-add-to-character.js"
+      ],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
