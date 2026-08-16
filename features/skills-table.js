@@ -203,10 +203,19 @@
     name.insertAdjacentElement("beforebegin", rollCell);
     rollCell.appendChild(name);
 
-    // Columns are pinned rather than inferred from position. When the panel is
-    // collapsed, `.skill__ability` and `.skill__bonus` unmount entirely, and
-    // without an explicit index the proficiency dropdown would be announced
-    // under the "Ability" header.
+    // Columns are pinned rather than inferred from position, so a row missing
+    // an optional cell leaves a gap instead of shifting every later cell into
+    // the wrong column.
+    //
+    // The `if (ability)` / `if (bonus)` guards are there because the sheet
+    // bundle renders those two conditionally. In practice they have always been
+    // present on the live sheet, so the missing-cell case is unverified — do
+    // NOT treat it as a known state. If a row ever does turn up without them,
+    // note that `aria-colindex` alone will not save it: NVDA counts cells
+    // positionally on a plain `role="table"`, which is why attacks-table.js
+    // inserts real filler cells. That fix cannot simply be copied here, since
+    // these cells would be present when the row is enhanced and removed later —
+    // it would need the sweep pattern from combobox-labels.js.
     setColumn(rowHeader, 1);
     setColumn(rollCell, 2);
     if (ability) {
