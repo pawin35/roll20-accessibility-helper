@@ -2,7 +2,11 @@
    Everything is namespaced with `r20a11y-` to avoid colliding with Roll20's
    own CSS. */
 
-.r20a11y-live-region {
+/* Screen-reader-only. `position: absolute` is load-bearing, not incidental:
+   Roll20's ABILITIES and SKILLS panels are CSS grid/subgrid, and an in-flow
+   element injected into them would occupy a grid cell and shift the columns. */
+.r20a11y-live-region,
+.r20a11y-visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -13,6 +17,57 @@
   border: 0;
   padding: 0;
   margin: -1px;
+}
+
+/* Hidden until focused. Used for the suggestion buttons beside the
+   proficiency fields: they must be reachable by keyboard, but a permanently
+   invisible focusable control sends a sighted keyboard user's focus somewhere
+   they cannot see. Revealing on focus keeps the panel looking unchanged while
+   still meeting WCAG 2.4.7. */
+.r20a11y-sr-only-focusable {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+  padding: 0;
+  margin: -1px;
+}
+
+.r20a11y-sr-only-focusable:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  clip-path: none;
+  white-space: normal;
+  margin: 2px;
+  padding: 2px 8px;
+  font-size: 12px;
+  border: 1px solid #8a5a2b;
+  border-radius: 4px;
+  background: #3a2412;
+  color: #f2d9b3;
+  outline: 2px solid #f2a900;
+  outline-offset: 2px;
+}
+
+/* The proficiency picker is injected as a sibling of `.combobox`, whose parent
+   is a flex row. `display: contents` keeps the wrapper from becoming a flex
+   item of its own, so the panel lays out exactly as it did before; its children
+   are `.r20a11y-sr-only-focusable`, i.e. absolutely positioned until focused,
+   and take no space either.
+
+   `:not([hidden])` is load-bearing on the list: the `hidden` attribute works by
+   setting `display: none` in the UA stylesheet, and a bare `display: contents`
+   here would override it and leave the collapsed list permanently exposed. */
+.r20a11y-picker,
+.r20a11y-picker-list:not([hidden]) {
+  display: contents;
 }
 
 .r20a11y-btn {

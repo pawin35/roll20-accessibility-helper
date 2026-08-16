@@ -1,16 +1,47 @@
 {
   "manifest_version": 3,
   "name": "Roll20 Accessibility Helper",
-  "version": "1.1.0",
-  "description": "Unofficial accessibility improvements for Roll20: replaces mouse-only interactions, such as compendium drag-and-drop, with keyboard- and screen-reader-accessible controls.",
+  "version": "1.3.0",
+  "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
   "content_scripts": [
     {
-      "matches": ["https://app.roll20.net/characters/sheet/*"],
+      "matches": [
+        "https://app.roll20.net/characters/sheet/*"
+      ],
       "js": [
         "lib/core.js",
+        "features/icon-button-labels.js",
         "features/compendium-add-to-character.js"
       ],
-      "css": ["styles.css"],
+      "css": [
+        "styles.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://advanced-sheets.production.roll20preflight.net/*"
+      ],
+      "all_frames": true,
+      "js": [
+        "lib/core.js",
+        "features/icon-button-labels.js",
+        "features/advantage-state.js",
+        "features/control-labels.js",
+        "features/dialog-focus.js",
+        "features/combobox-labels.js",
+        "features/skills-table.js",
+        "features/abilities-table.js",
+        "features/passive-senses-table.js",
+        "features/item-row-icons.js",
+        "features/attack-labels.js",
+        "features/attacks-table.js",
+        "features/spells-table.js",
+        "features/inventory-table.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
       "run_at": "document_idle"
     }
   ]
