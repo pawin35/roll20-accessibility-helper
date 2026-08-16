@@ -10,7 +10,10 @@
  *
  * The table is visually hidden but present in the accessibility tree, so a
  * screen reader reaches it by table navigation or by the "Map grid" heading.
- * Nothing in it is ever focused: this is an exposition surface, not a control.
+ * Its cells are also focusable: alt+M jumps to the current player's token, and
+ * the arrow keys then walk the grid cell by cell (a roving tabindex keeps one
+ * cell in the Tab order at a time). Focusing a cell reads it, since its text
+ * already holds the coordinate, token, and terrain.
  *
  * Reactivity: every forwarded delta rewrites only the affected cell(s); the
  * sound and the announcement are debounced ~150 ms so a drag is spoken once,
@@ -170,6 +173,11 @@
           getGrid: () => grid,
         });
       }
+
+      // Arrow keys walk the grid while a cell is focused; the handler lives on
+      // the section (which persists across page switches) and checks the event
+      // target so it only acts on our cells, not the terrain button.
+      section.addEventListener("keydown", arrowNav);
     }
     if (table) table.remove();
 
@@ -188,6 +196,9 @@
       for (let c = 0; c < init.width; c++) {
         const td = document.createElement("td");
         td.textContent = "blank, " + cellRef(c, r);
+        td.setAttribute("tabindex", "-1");
+        td.dataset.col = c;
+        td.dataset.row = r;
         tds.set(c + ":" + r, td);
         tr.appendChild(td);
       }
@@ -413,6 +424,42 @@
   }
 
   /**
+   * Move focus to a cell, keeping a roving tabindex: exactly one cell holds
+   * `tabindex="0"` at a time so Tab can re-enter the grid where the user left
+   * it. Focusing a cell makes the screen reader read it, since the cell text
+   * already carries the coordinate / token / terrain.
+   */
+  function focusCell(td) {
+    const prev = table && table.querySelector('td[tabindex="0"]');
+    if (prev && prev !== td) prev.setAttribute("tabindex", "-1");
+    td.setAttribute("tabindex", "0");
+    td.focus();
+  }
+
+  /**
+   * Arrow keys move focus to the neighbouring cell, clamped to the grid by
+   * whether a `<td>` exists for the target. No announcement of our own: the
+   * focus change itself is what the screen reader reads.
+   */
+  function arrowNav(event) {
+    const td = event.target;
+    if (!td || td.tagName !== "TD") return;
+    let dc = 0;
+    let dr = 0;
+    if (event.key === "ArrowUp") dr = -1;
+    else if (event.key === "ArrowDown") dr = 1;
+    else if (event.key === "ArrowLeft") dc = -1;
+    else if (event.key === "ArrowRight") dc = 1;
+    else return;
+    event.preventDefault();
+    const col = Number(td.dataset.col);
+    const row = Number(td.dataset.row);
+    if (!Number.isFinite(col) || !Number.isFinite(row)) return;
+    const target = tds && tds.get(keyOf(col + dc, row + dr));
+    if (target) focusCell(target);
+  }
+
+  /**
    * Focus the first of the player's tokens. `say` is only used for the paths
    * where focus does not move — success focuses the cell, and the screen reader
    * reads it, so announcing on top of that would double it.
@@ -434,8 +481,14 @@
       say("Your token is outside the grid.");
       return;
     }
-    td.setAttribute("tabindex", "-1");
-    td.focus();
+    if (document.activeElement === td) {
+      // The cell is already focused, so `focus()` would be a no-op and the
+      // screen reader would not re-read it. Announce its text instead so the
+      // user still hears where they are.
+      say(td.textContent);
+      return;
+    }
+    focusCell(td);
     if (mine.length > 1) {
       // The focused cell is read by the screen reader already, so this only adds
       // the count rather than repeating the name and cell.

@@ -537,8 +537,10 @@
   // --- Rolling from the chat box ----------------------------------------
   //
   // `roll.mp3` on a `/roll` or `/r` typed into the chat box, and on the same
-  // thing sent with alt+shift+C. It fires on the **press**, not on the message
-  // coming back, so it is confirmation that the roll went — the same reasoning
+  // thing sent with alt+shift+C, and on a `%{name|attribute}` macro shorthand
+  // (what the roll shortcuts send). It fires on the **press**, not on the
+  // message coming back, so it is confirmation that the roll went — the same
+  // reasoning
   // as the sheet's own roll sound in features/last-result.js, and the reason
   // this cannot be driven from the chat log like every other sound here.
   //
@@ -554,13 +556,19 @@
   // `/rolltable` are not mistaken for rolls.
   const ROLL_COMMAND = /^\s*\/(roll|r)(\s|$)/i;
 
+  // A Roll20 macro/ability/skill shorthand at the start of the message, e.g.
+  // `%{Brother Lorian|deception}`. This is what the roll shortcuts send, so the
+  // same press-confirmation sound covers them.
+  const MACRO_ROLL = /^\s*%\{[^|{}]+\|[^}]+\}/;
+
   // Enter and a click on Send can both fire for one send. Two sounds for one
   // roll is worse than none.
   const RESEND_MS = 500;
   let lastRollSoundAt = 0;
 
   function noteSent(text) {
-    if (!ROLL_COMMAND.test(String(text || ""))) return;
+    const s = String(text || "");
+    if (!ROLL_COMMAND.test(s) && !MACRO_ROLL.test(s)) return;
     const now = Date.now();
     if (now - lastRollSoundAt < RESEND_MS) return;
     lastRollSoundAt = now;
@@ -981,6 +989,14 @@
     // character-sheet page its own top half answers; here, this does.
     if (data.r20a11yReannounce) move("reread", reply);
   });
+
+  // Shared with features/roll-shortcuts.js: send arbitrary text to the chat box
+  // and leave focus on `before`. `success` may be "" for a silent send (the
+  // result arrives in the log and is announced there). Only defined here, in
+  // the VTT top frame, which is the only place a chat send can happen.
+  window.Roll20A11y.sendChatText = (text, before, success) => {
+    sendText(text, speakHere, before, success || "");
+  };
 
   sweep();
 })();

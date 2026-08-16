@@ -63,6 +63,10 @@ Several files are listed in **more than one** entry and branch on
 - `map-grid.js` — the grid lives in the VTT top frame, but `alt+M` (jump to my
   token) is forwarded from the sheet frame, so its sheet half only forwards the
   key and listens for the failure reply.
+- `roll-shortcuts.js` — the roll shortcuts (`alt+shift+S`/`A`/`I`/`D`/`H`), same
+  split as the chat keys: the sheet half forwards the key, the top frame sends
+  or opens the modal, and the "done" reply is the sheet's cue to take focus
+  back.
 
 All content scripts share one isolated-world global scope. `lib/core.js`
 publishes `window.Roll20A11y`; feature files consume it and must be listed
@@ -358,14 +362,16 @@ is the test: the name changes with `#speakingas` and is missing entirely from
 grouped messages.
 
 Plus one sound that is **not** driven by the chat log at all: `roll.mp3` fires
-when a `/roll` or `/r` is sent from the chat box, on the **press** rather than
-on the message coming back, so it confirms the roll went. Both send routes are
-watched — Enter in `#textchat-input textarea`, and a click on `#chatSendBtn` —
-in the **capture** phase, because Roll20 clears the textarea while handling the
-send and the value is gone by the time a bubbling listener runs. `alt+shift+C`
-needs no case of its own: it sends by clicking that button. The two listeners
-can both fire for one send, hence the 500 ms guard. `/gmroll` deliberately does
-not count; only `/roll` and `/r` were asked for.
+when a `/roll`, `/r`, or a `%{name|attribute}` macro shorthand is sent from the
+chat box, on the **press** rather than on the message coming back, so it
+confirms the roll went. The macro form is what the roll shortcuts (below) send,
+so they get the same press confirmation. Both send routes are watched — Enter in
+`#textchat-input textarea`, and a click on `#chatSendBtn` — in the **capture**
+phase, because Roll20 clears the textarea while handling the send and the value
+is gone by the time a bubbling listener runs. `alt+shift+C` needs no case of its
+own: it sends by clicking that button. The two listeners can both fire for one
+send, hence the 500 ms guard. `/gmroll` deliberately does not count; only
+`/roll`, `/r`, and the macro form were asked for.
 
 The crit check reads the **d20's own face**, never the total, via
 `rollFormat.critKindFromTemplate` for a sheet roll and `rollFormat.judge` over
@@ -389,10 +395,17 @@ A screen-reader-only `<table>` built at the end of the VTT document that mirrors
 the page's grid: one row per grid row, one cell per column, each token placed in
 the cell it occupies, spoken with its name, facing, and — for player-controlled
 characters — hit points. Reached by table navigation or the "Map grid" heading;
-it is visually hidden and nothing in it is ever focused. There are no row or
-column headers: every cell carries its own coordinate, so an empty cell reads
-"blank, A1" and an occupied one "Brother Lorian — 12 hit points, facing west,
-F4". Column letters are uppercase, row numbers start at 1 from the top.
+it is visually hidden. Each cell carries its own coordinate (there are no row
+or column headers), so an empty cell reads "blank, A1" and an occupied one
+"Brother Lorian — 12 hit points, facing west, F4". Column letters are uppercase,
+row numbers start at 1 from the top.
+
+The cells are also focusable: `alt+M` focuses the cell holding the current
+player's token, and the arrow keys then walk the grid cell by cell (a roving
+tabindex keeps one cell in the Tab order at a time, so Tab re-enters where the
+user left). Focusing a cell reads it, because its text already holds the
+coordinate, token and terrain; pressing `alt+M` when the cell is already focused
+re-announces that text instead of doing nothing.
 
 Unlike everything else in this extension, this is driven by Roll20's **model**,
 not its DOM: the tabletop renders to an opaque WebGL canvas with zero DOM, but
@@ -478,6 +491,27 @@ Facts that shaped it:
 - **The model id** is a one-line constant, currently `gemini-3.5-flash-lite`
   (2.5 Flash-Lite is retired).
 
+### Relative position
+
+`features/relative-position.js` adds a screen-reader-only "Relative position"
+section directly after the battle-grid table, answering what the grid itself
+does not: *how far, and in which direction, is everything else from me?* It
+measures from the current player's token (the same "first by grid order" rule as
+alt+M) and lists every other creature token — objects layer only, no furniture
+— as a distance plus an o'clock bearing taken relative to the reference token's
+facing: 12 o'clock is straight ahead, 3 to the right, 6 behind, 9 to the left.
+
+It consumes the bridge's three postMessage verbs independently of `map-grid.js`
+and never writes into the grid's cells, so it has no `bind()` hook as terrain
+does — it keeps its own token map. The section is always live (rebuilt silently
+on every delta) and reached by its heading, never announced on change.
+
+Distance uses Roll20's own measurement: grid squares per the page's
+`diagonaltype` ("foure" = diagonals cost one square), times `scale_number`,
+labelled with `scale_units`. Facing is rounded to the same 8 compass points the
+grid shows, and the o'clock is computed against that *rounded* facing so the
+announced direction and bearing always agree.
+
 ## Keyboard shortcuts
 
 There is no `commands` block in the manifest; these are page-level `keydown`
@@ -494,6 +528,11 @@ always, in the sheet. Matched on `event.code`, so a non-US layout still works.
 | `alt+[` / `alt+]` | Previous / next chat message | VTT |
 | `alt+shift+[` / `alt+shift+]` | First / last chat message | VTT |
 | `alt+shift+C` | Prompt for a line and send it to chat | VTT |
+| `alt+shift+S` | Open the skill-roll dropdown | VTT |
+| `alt+shift+A` | Open the ability-roll dropdown (checks and saves) | VTT |
+| `alt+shift+I` | Roll initiative directly | VTT |
+| `alt+shift+D` | Roll a death save directly | VTT |
+| `alt+shift+H` | Whisper a readout of HP and AC | VTT |
 | `alt+M` | Focus the grid cell holding the current player's token | VTT |
 
 `alt+S` selects Roll20's control labelled **"Automatic"** but is spoken as
@@ -535,6 +574,32 @@ would be three notifications for one key. Failures are still spoken. That is
 why `sendText` takes its success message as an argument and why the "" reply is
 still posted to the sheet frame — that reply is the sheet's cue to take focus
 back, so skipping it would strand focus in the VTT.
+
+### Roll shortcuts (`alt+shift+S` / `A` / `I` / `D` / `H`)
+
+`features/roll-shortcuts.js`. Skill and ability open a `<dialog>` holding an ARIA
+listbox — S lists the 18 skills, A the 12 ability checks and saves — and choosing
+an option sends Roll20's macro form `%{Character Name|attribute}`. Initiative,
+death save, and state have no dropdown and send straight away:
+
+- `alt+shift+S` → `%{Name|acrobatics}`, … `%{Name|survival}`
+- `alt+shift+A` → `%{Name|strength}`, … `%{Name|charisma_save}`
+- `alt+shift+I` → `%{Name|initiative}`
+- `alt+shift+D` → `%{Name|death_save}`
+- `alt+shift+H` → `/w "Name" HP @{Name|hp} out of @{Name|hp|max}, with @{Name|hp_temp} temp HP, AC is at @{Name|ac}`
+
+The character is the current player's first controlled character, by name, read
+from the VTT's "Speak As" dropdown (`#speakingas`) — the options Roll20 already
+keeps sorted, so the first `character|…` option is the one to roll as.
+
+The modal is a native `<dialog>.showModal()` (so aria-modal, inert background,
+and focus restore are the platform's), with the options as an ARIA listbox — not
+a `<select>`, which auto-commits on the first Down arrow and whose `showPicker()`
+popup a screen reader cannot read. Escape closes in one press via a
+document-level capture keydown (the native `cancel` stays as fallback). The key
+is registered in both frames like every shortcut: the sheet frame forwards it,
+the top frame acts, and focus is handed back down once the dialog closes or the
+roll is sent.
 
 ## Test page
 

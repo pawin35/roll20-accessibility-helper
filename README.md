@@ -84,6 +84,24 @@ roll and the next without leaving what you were doing.
 Each sends `/r 1dN` to chat. You hear a roll sound the moment you press, and the
 result is announced when it arrives.
 
+### Roll shortcuts — game session only
+
+| Key | Does |
+| --- | --- |
+| `alt+shift+S` | Open the skill dropdown and roll the chosen skill |
+| `alt+shift+A` | Open the ability dropdown and roll a check or save |
+| `alt+shift+I` | Roll initiative |
+| `alt+shift+D` | Roll a death save |
+| `alt+shift+H` | Whisper a readout of your HP and AC |
+
+Skill and ability open a small dialog listing the options (18 skills, or the 12
+ability checks and saves); the arrow keys move through them, Enter or Space
+rolls, Escape closes without rolling. Each sends Roll20's macro form
+`%{Character Name|attribute}` for your first controlled character, so
+`alt+shift+S` → `%{Brother Lorian|perception}` and `alt+shift+D` →
+`%{Brother Lorian|death_save}`. `alt+shift+H` whispers the character's current
+HP, maximum, temp HP and AC back to you.
+
 ### Chat — game session only
 
 | Key | Does |
@@ -121,9 +139,11 @@ number is which.
 | --- | --- |
 | `alt+M` | Focus the grid cell holding your token |
 
-Jump to where your character stands, then walk the grid from there with your
-screen reader's table navigation. If you control several characters, it focuses
-the first and tells you how many are on the map; if you have none, it says so.
+Jump to where your character stands, then walk the grid from there with the
+**arrow keys** (or your screen reader's table navigation). If you control
+several characters, it focuses the first and tells you how many are on the map;
+if you have none, it says so. Pressing `alt+M` again re-reads the cell you are
+standing on.
 
 ---
 
@@ -176,7 +196,7 @@ that tells you more:
 
 | What happened | Sound |
 | --- | --- |
-| You sent `/roll` or `/r` from the chat box (or `alt+1`…`alt+7`) | roll sound, on the press |
+| You sent `/roll`, `/r`, or a `%{name|attribute}` macro from the chat box (or `alt+1`…`alt+7`) | roll sound, on the press |
 | Someone else rolled | a distinct "other player rolled" sound |
 | **A natural 20 or natural 1** | its own fanfare — whoever rolled it |
 | You rolled anything else | nothing; you already know |
@@ -196,7 +216,24 @@ with an empty square reading `blank, A1`. Column letters are uppercase, row
 numbers start at 1 from the top. Hit points are read only for characters
 controlled by a player, so a GM's secret monsters do not leak them. When the GM
 moves a token, the table updates immediately, plays a short tone, and announces
-the move. `alt+M` jumps focus to your own token.
+the move. `alt+M` jumps focus to your own token, and the arrow keys then walk
+the grid cell by cell.
+
+### Relative position
+
+Directly after the grid table is a **Relative position** section that answers
+"how far, and in which direction, is everything else from me?" It measures from
+your token and lists every other creature token as a distance and an o'clock
+bearing taken relative to your facing — 12 o'clock is straight ahead, 3 to the
+right, 6 behind, 9 to the left:
+
+```
+Orc — 20 feet, 12 o'clock
+Goblin — 35 feet, 3 o'clock
+```
+
+Distance uses Roll20's own page scale and diagonal setting, so it agrees with
+the ruler. The list is always live and reached by its heading.
 
 ### Terrain identification
 
@@ -299,8 +336,8 @@ Contributor notes, including the traps that produced real bugs, are in
   The duplicate announcement is filtered out.
 - A burst of more than five messages arriving at once is treated as history and
   not read aloud. Use `alt+shift+]` to catch up.
-- **`/gmroll` is not treated as a roll command** by the roll sound; only `/roll`
-  and `/r`.
+- **`/gmroll` is not treated as a roll command** by the roll sound; only `/roll`,
+  `/r`, and the `%{name|attribute}` macro form.
 - Compendium adding is verified end-to-end for **Items**. Spells, Feats and
   Features use the same code path but are less tested.
 - **Terrain identification calls Google's Gemini API** with your own key. The

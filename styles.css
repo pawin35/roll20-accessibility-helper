@@ -143,3 +143,63 @@ html:not(.r20a11y-roll-log-visible) [data-testid="test-roll-log-drawer"] {
   padding: 0;
   margin: -1px;
 }
+
+/* The "Relative position" section, a sibling of the battle-grid table. Same
+   screen-reader-only treatment, but a list rather than a table, so it can wrap
+   long lines normally. Nothing inside is focusable. */
+.r20a11y-relative-position {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: normal;
+  border: 0;
+  padding: 0;
+  margin: -1px;
+}
+
+/* The roll-shortcut dialog (features/roll-shortcuts.js). A native <dialog>
+   shown with showModal(), so the browser draws the ::backdrop and centres it;
+   this only gives it the extension's dark parchment look. */
+.r20a11y-modal {
+  border: 1px solid #8a5a2b;
+  border-radius: 6px;
+  padding: 16px;
+  background: #2a1a10;
+  color: #f2d9b3;
+  font-size: 13px;
+  min-width: 240px;
+}
+
+.r20a11y-modal h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.r20a11y-modal #r20a11y-roll-label {
+  display: block;
+  margin: 0 0 4px;
+}
+
+.r20a11y-modal [role="listbox"] {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #8a5a2b;
+  border-radius: 4px;
+  margin: 4px 0 8px;
+  min-width: 200px;
+}
+
+.r20a11y-modal [role="option"] {
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.r20a11y-modal [role="option"][aria-selected="true"] {
+  background: #5a371a;
+  color: #f2d9b3;
+  outline: 2px solid #f2a900;
+  outline-offset: -2px;
+}
