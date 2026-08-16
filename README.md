@@ -1,122 +1,304 @@
 # Roll20 Accessibility Helper
 
-An unofficial Chrome extension that makes [Roll20](https://roll20.net)'s
-character tools usable without a mouse.
+An unofficial Chrome extension that makes [Roll20](https://roll20.net) usable
+without a mouse and with a screen reader.
 
-Parts of Roll20's newer character sheet UI can only be operated by dragging
-with a mouse. That locks out blind screen-reader users and anyone who can't
-perform a precise drag gesture. This extension adds ordinary, focusable,
-labelled controls that perform the same actions.
+Parts of Roll20's newer interface can only be operated by dragging, several
+controls are unlabelled or named after the icon font's glyphs, its panels are
+CSS grids with no table semantics, and the chat log reads as a column of loose
+numbers. That locks out blind screen-reader users and anyone who cannot perform
+a precise drag. This extension adds ordinary, focusable, labelled controls and
+speaks what happens.
 
-## Features
+It covers **both** places you actually play:
 
-| Feature | What it does |
-| --- | --- |
-| **Compendium → Add to Character** | Adds an **Add to Character** button to every Compendium search result, replacing the mouse-only drag-and-drop needed to add an item to a character's inventory. |
+- the standalone **character sheet** at `app.roll20.net/characters/sheet/…`
+- a live **game session** (the VTT) at `app.roll20.net/editor/…`, including the
+  floating character sheet inside it
 
-Every action reports its result through a visually-hidden `aria-live` region,
-so a screen reader always announces whether it succeeded.
+> Unaffiliated with Roll20. This relies on Roll20's internal, undocumented DOM,
+> which can change without warning.
 
-## Installing (unpacked)
+---
+
+## Contents
+
+- [Installing](#installing)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Features — game session (VTT)](#features--game-session-vtt)
+- [Features — character sheet](#features--character-sheet)
+- [Sounds](#sounds)
+- [How it works](#how-it-works)
+- [Limitations](#limitations)
+- [Development](#development)
+
+---
+
+## Installing
+
+There is no build step and there are no dependencies. Load the folder as it is.
 
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode** (top-right toggle).
 3. Click **Load unpacked** and select this folder.
-4. Open a character sheet at
-   `https://app.roll20.net/characters/sheet/<id>?sheet_shortname=dnd2024byroll20`,
-   open the Compendium panel, and search. Each result now has an
-   **Add to Character** button.
+4. Open a Roll20 character sheet or launch a game.
 
-After changing any file, press **Reload** on the extension card *and* refresh
-the Roll20 tab — a content script already running in an open tab is not
-replaced until the page reloads.
+**After changing any file, press Reload on the extension card *and* refresh the
+Roll20 tab.** Both steps, every time — a content script already running in an
+open tab is not replaced until the page reloads, and a stale script looks
+exactly like a broken feature.
 
-## Project layout
+Requires Chrome 111 or newer (one component runs in the page's own JavaScript
+world, which needs `"world": "MAIN"` support).
+
+---
+
+## Keyboard shortcuts
+
+All shortcuts work **from anywhere on the page**, including while focus is
+inside the character sheet's iframe. None of them move focus except
+`alt+shift+<n>`, which is meant to.
+
+### Rolling
+
+| Key | Does |
+| --- | --- |
+| `alt+A` | Roll with **Advantage** |
+| `alt+S` | Roll **Normal** (Roll20 labels this control "Automatic") |
+| `alt+Z` | Roll with **Disadvantage** |
+| `alt+O` | Re-read the last roll result / the chat message you are on |
+
+`alt+A` / `alt+S` / `alt+Z` change the sheet's roll mode in place and say which
+mode you are now in. Focus does not move, so you can set the mode between one
+roll and the next without leaving what you were doing.
+
+### Quick dice — game session only
+
+| Key | Rolls | Key | Rolls |
+| --- | --- | --- | --- |
+| `alt+1` | d4 | `alt+5` | d12 |
+| `alt+2` | d6 | `alt+6` | d20 |
+| `alt+3` | d8 | `alt+7` | d100 |
+| `alt+4` | d10 | | |
+
+Each sends `/r 1dN` to chat. You hear a roll sound the moment you press, and the
+result is announced when it arrives.
+
+### Chat — game session only
+
+| Key | Does |
+| --- | --- |
+| `alt+[` | Previous message |
+| `alt+]` | Next message |
+| `alt+shift+[` | First message in the log |
+| `alt+shift+]` | Last message in the log |
+| `alt+O` | Re-read the message you are on |
+| `alt+shift+C` | Type a message and send it |
+
+The four navigation keys move a **reading cursor**, not focus — you can read
+back through the whole log without losing your place in the sheet. A short tone
+tells you when you have run off either end of the log (low for the start, high
+for the end).
+
+`alt+shift+C` opens a small input box, sends what you type, and returns focus
+exactly where it was. Whoever you are currently speaking as (Roll20's
+"speaking as" selector) is used unchanged.
+
+### Sidebar — game session only
+
+| Key | Does |
+| --- | --- |
+| `alt+shift+1` … `alt+shift+9` | Open the *n*th sidebar tab and focus its panel |
+
+Numbered by the tabs actually visible to you, left to right — usually Chat, Art
+Library, Journal, Compendium, Jukebox, Collections, Announcements, Settings. The
+tab is announced by name when it opens, so you do not have to memorise which
+number is which.
+
+---
+
+## Features — game session (VTT)
+
+### Chat read one line per message
+
+Roll20's own markup reads as a pile. A single initiative roll came out as:
+
+```
+Brother Lorian / Initiative / 7 / 2 / Details /
+rolling 2d8+3( / 7 / 0 / + / 4 / 0 / )+3=14 / izatea (GM):…
+```
+
+Three separate causes, all fixed:
+
+- each die is a value *next to a dice-font glyph*, and the glyph got read as a
+  stray number;
+- Roll20 renders the sender only on the **first** message of a run, so every
+  following message was read with no idea who said it;
+- a roll's numbers are spread across a collapsed disclosure.
+
+Each message is now collapsed to **one line** — who, and either what they said
+or the roll with its full breakdown:
+
+```
+Brother Lorian: Strength Check, with advantage. 1d20, 15, Strength +1. Total 16.
+Punnaphoj: rolling 2d8+3, dice 7 and 4, total 14.
+izatea (GM): ไหนลองแชทดูหน่อย
+```
+
+The character's name is used when there is one, falling back to the account
+name. Nothing changes visually — the page looks exactly as it did.
+
+New messages are announced as they arrive. Reloading a campaign does **not**
+replay its history at you, and Roll20's habit of occasionally handling a sheet
+roll twice no longer produces two announcements.
+
+### Sidebar tabs you can reach and name
+
+Roll20's tab strip names each tab after its icon font's glyph, so a screen
+reader announces "chatTab", "assetsTab", "journalTab". Each tab is renamed from
+Roll20's own tooltip text, and `alt+shift+<n>` jumps straight to one.
+
+### Quieter, more informative rolls
+
+Roll20 plays the same notification beep for every message. That is suppressed
+for dice rolls only — ordinary chat still beeps — and replaced with something
+that tells you more:
+
+| What happened | Sound |
+| --- | --- |
+| You sent `/roll` or `/r` from the chat box (or `alt+1`…`alt+7`) | roll sound, on the press |
+| Someone else rolled | a distinct "other player rolled" sound |
+| **A natural 20 or natural 1** | its own fanfare — whoever rolled it |
+| You rolled anything else | nothing; you already know |
+
+---
+
+## Features — character sheet
+
+Everything here also applies to the floating character sheet inside a game.
+
+| Feature | What it does |
+| --- | --- |
+| **Spoken roll results** | Every roll is announced through a "Last Result" region — title, total, and the breakdown read row by row, with zero-value bonuses dropped. `alt+O` repeats it. Roll20's Roll Log drawer normally opens on every roll and steals focus into itself; it is neutralised so focus never moves, and still opens normally when you ask for it from the nav. |
+| **Roll mode shortcuts** | `alt+A` / `alt+S` / `alt+Z`, described above. |
+| **SKILLS as a table** | Skill, Roll, Ability, Bonus and Proficiency become real table columns, so you can navigate by cell and hear the column headers. Proficiency exists only as a colour in Roll20's markup and is given text. |
+| **ABILITIES as a table** | The six abilities become rows with Score, Modifier and Saving throw columns. |
+| **Attacks, Spells, Inventory and Passive Senses as tables** | Same treatment for each panel. Rows genuinely differ in shape — an attack with no type, a collapsed skill — so cells are pinned to their columns and missing ones leave a gap instead of shifting everything after them. |
+| **Named icon-only buttons** | Roll20's icon buttons are named after their glyph. They are renamed from surrounding context: "Show description", "Edit attack", "Roll damage", "Edit *panel*", "Damage", "Heal", "Send to chat". |
+| **Named form controls** | The +/- spinbuttons, the equip toggles and the quantity steppers get accessible names taken from the labels beside them. |
+| **Advantage spoken** | The advantage/disadvantage badge is a colour and an icon; it now also says "with advantage" / "with disadvantage". |
+| **Proficiencies & Languages** | The picker is an autocomplete whose options are never announced. A screen-reader-reachable list of "Add *X*" buttons is added alongside, grouped by category, and each addition is confirmed aloud. |
+| **Dialog focus management** | Dialogs take focus on open, trap Tab, recover focus when Roll20 re-renders the control you were on, and return focus where it came from on close. |
+| **Compendium → Add to Character** | Adds an **Add to Character** button to every Compendium result, replacing the mouse-only drag-and-drop needed to add an item. |
+
+### Using the Compendium button
+
+Open the Compendium panel, search, and Tab to any result — each one now has an
+**Add to Character** button. Activating it performs the same sequence Roll20's
+drag does, and announces whether the item was added. No mouse movement is
+involved and results do not need to be scrolled into view.
+
+---
+
+## Sounds
+
+Bundled in `sounds/`. Attribution and licence terms for each file are in
+[`sounds/LICENSES.md`](sounds/LICENSES.md).
+
+Chrome's autoplay policy means no sound plays until you have interacted with the
+page at least once, which is always true by the time a roll happens.
+
+---
+
+## How it works
+
+No build step, no dependencies, no framework — plain content scripts loaded
+directly from this folder.
 
 ```
 manifest.json                            Manifest V3 config
 styles.css                               Shared styles (all `r20a11y-` prefixed)
 lib/core.js                              Shared helpers, loaded first
-features/compendium-add-to-character.js  One feature per file
+lib/roll-format.js                       Reads a D&D 2024 roll template
+features/<one-per-feature>.js            One feature per file
+page/<one-per-shim>.js                   Runs in Roll20's own JS world
+sounds/                                  Audio assets
 ```
 
-All content scripts share a single isolated-world global scope, so
-`lib/core.js` publishes helpers on `window.Roll20A11y` for the feature files
-listed after it in `manifest.json`.
+Roll20's pages are rendered asynchronously and re-rendered freely, so features
+never query the DOM once at startup. They register a selector with
+`Roll20A11y.enhance()` and get called for every current *and future* match.
+Every user-visible action reports its outcome through a visually-hidden
+`aria-live` region, because Roll20's own toasts are not reliably announced.
 
-### `window.Roll20A11y`
+Two structural points worth knowing:
 
-| Helper | Purpose |
-| --- | --- |
-| `enhance(selector, onMatch)` | Calls `onMatch(el)` for every current **and future** element matching `selector`. Roll20 renders content long after load, so features never query the DOM once. |
-| `markOnce(el, key)` | `true` the first time only — makes `onMatch` idempotent. |
-| `waitForElement(selector, opts)` | Resolves when an element appears, or `null` on timeout. |
-| `announce(message)` | Speaks a message via the shared polite live region. |
-| `createButton({label, ariaLabel, onActivate})` | A consistently styled, keyboard-accessible button. |
+- **The character sheet is a cross-origin iframe.** Shortcuts are registered in
+  both the page and the sheet and forwarded across, because a keypress only
+  reaches whichever frame has focus.
+- **One file runs in Roll20's own JavaScript world** (`page/`). Roll20 plays its
+  chat beep through an audio element it never puts in the document, so there is
+  nothing for a normal content script to mute. That is the only reason the
+  `page/` directory exists.
 
-### Adding a feature
+Contributor notes, including the traps that produced real bugs, are in
+[`CLAUDE.md`](CLAUDE.md).
 
-Create `features/your-feature.js`, add it to `content_scripts.js` in
-`manifest.json` (after `lib/core.js`), and use `enhance()` to attach controls.
-
-## How the Compendium feature works
-
-Reverse-engineered from Roll20's own client bundle
-(`enhanced-character-vault/main.js`):
-
-1. Each result row is
-   `<div class="compendium-page__upper" draggable data-pagename="Items%3ALongsword"
-   data-expansionid="33335">`. Its own `dragstart` handler calls
-   `dataTransfer.setData('page', JSON.stringify({id, name, book, category}))`,
-   so the payload never has to be reconstructed by hand.
-
-2. That same `dragstart` **bubbles up** to the `CompendiumPanel` component,
-   which emits `dragItemStart`. The root component flips a ref passed down as
-   the `isPageBeingDragged` prop, and the drop target is rendered only behind
-   that condition:
-
-   ```js
-   isPageBeingDragged ? createBlock(CompendiumDropZone) : createCommentVNode()
-   ```
-
-   So `.compendium-dropzone` **does not exist in the DOM** until a `dragstart`
-   fires; a matching `dragend` unmounts it again.
-
-3. The mounted dropzone's `drop` handler (`handleCompendiumDropItem`) reads
-   `dataTransfer.getData('page')` and forwards
-   `{pageName, category, expansion}` over a `MessageChannel` into the
-   character-sheet iframe, which fetches full stats and saves the item.
-
-The extension therefore dispatches `dragstart` on the row, **waits for the
-dropzone to appear**, dispatches `dragenter` → `dragover` → `drop` at it, then
-`dragend` to clean up. No mouse movement and no cross-origin scripting into the
-sheet's iframe are involved — only DOM events dispatched at specific elements.
-Because nothing depends on where the pointer is, elements do not need to be
-scrolled into view or visible.
-
-### Timing gotchas (these caused real bugs — don't regress them)
-
-- **Vue renders asynchronously.** Checking for `.compendium-dropzone`
-  synchronously right after dispatching `dragstart` always finds `null`. You
-  must poll for it.
-- **Poll with `setTimeout`, never `requestAnimationFrame`.** rAF is paused
-  entirely while a tab is in the background, so an rAF poll hangs forever
-  instead of timing out. (Verified: a backgrounded tab reports
-  `visibilityState: "hidden"` and never fires rAF.) This applies to
-  `announce()` too.
-- **Always dispatch `dragend`, including on the failure path.** Leaving the
-  flag set keeps a stale dropzone mounted and breaks the next add.
+---
 
 ## Limitations
 
-- Scoped to `app.roll20.net/characters/sheet/*`. Not tested inside a live VTT
-  game session, where the markup may differ.
-- Verified end-to-end for the **Items** category (weapons and armor),
-  including several consecutive adds in one session. Spells, Feats and
-  Features use the same code path — the category travels inside the row's own
-  `dragstart` payload — but have not been tested.
-- This relies on Roll20's internal, undocumented DOM structure and message
-  shapes. It is **not** a public API, and a Roll20 deploy can change class
-  names or payloads without warning. The code fails safe: if a required
-  element is missing it announces a failure rather than throwing silently.
-- Unaffiliated with Roll20.
+- **Built against the D&D 2024 sheet** (`dnd2024byroll20`). Other sheets share
+  the chat and sidebar work but not the sheet-panel tables.
+- **Collapsing a chat message to one line hides what is inside it.** Links and
+  the "Details" disclosure within a message are no longer reachable by a screen
+  reader. That is the deliberate trade for one line per message.
+- **Roll20 sometimes handles a sheet roll twice.** Its own notification sound
+  still rings twice when that happens; nothing outside Roll20 can suppress it.
+  The duplicate announcement is filtered out.
+- A burst of more than five messages arriving at once is treated as history and
+  not read aloud. Use `alt+shift+]` to catch up.
+- **`/gmroll` is not treated as a roll command** by the roll sound; only `/roll`
+  and `/r`.
+- Compendium adding is verified end-to-end for **Items**. Spells, Feats and
+  Features use the same code path but are less tested.
+- This depends on Roll20's undocumented internals. It fails safe — if an
+  expected element is missing it announces a plain failure rather than throwing
+  or silently doing nothing — but a Roll20 deploy can break a feature.
+
+---
+
+## Development
+
+There is no test suite; changes are verified by hand against the live page.
+Before handing anything over:
+
+```bash
+for f in lib/*.js features/*.js page/*.js; do node --check "$f" || echo "FAIL $f"; done
+python3 -c "import json;json.load(open('manifest.json'))"
+```
+
+Then reload the extension **and** refresh the Roll20 tab.
+
+### Adding a feature
+
+Create `features/your-feature.js`, add it to the right `content_scripts` entry
+in `manifest.json` (after `lib/core.js`), and use `enhance()` to attach
+controls. Keep the callback idempotent with `markOnce()`.
+
+`window.Roll20A11y` provides:
+
+| Helper | Purpose |
+| --- | --- |
+| `enhance(selector, onMatch)` | Calls `onMatch(el)` for every current **and future** match. |
+| `markOnce(el, key)` | `true` the first time only — makes `onMatch` idempotent. |
+| `waitForElement(selector, opts)` | Resolves when an element appears, or `null` on timeout. |
+| `announce(message)` | Speaks a message through the shared live region. |
+| `createButton({label, ariaLabel, onActivate})` | A consistently styled, keyboard-accessible button. |
+| `labelFrom(el, parts, host)` | Names an element from live nodes, so the name cannot go stale. |
+| `setColumn(el, index)` / `presentational(el)` | Table-semantics helpers. |
+| `rollFormat` | Reads a D&D 2024 roll template into speakable text. |
+
+Read [`CLAUDE.md`](CLAUDE.md) before changing anything in the sheet frame — it
+documents the diagnosis route for a frame you cannot inspect, and the specific
+mistakes that cost whole debugging cycles.

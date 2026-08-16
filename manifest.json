@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Roll20 Accessibility Helper",
-  "version": "1.7.0",
-  "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, spoken roll results that do not steal focus, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
+  "version": "1.12.0",
+  "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, spoken roll results that do not steal focus, a VTT text chat read one line per message with keyboard navigation, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
   "content_scripts": [
     {
       "matches": [
@@ -10,6 +10,7 @@
       ],
       "js": [
         "lib/core.js",
+        "lib/roll-format.js",
         "features/last-result.js",
         "features/roll-mode-keys.js",
         "features/icon-button-labels.js",
@@ -22,13 +23,42 @@
     },
     {
       "matches": [
+        "https://app.roll20.net/editor/*"
+      ],
+      "js": [
+        "lib/core.js",
+        "lib/roll-format.js",
+        "features/roll-mode-keys.js",
+        "features/vtt-sidebar-tabs.js",
+        "features/vtt-chat.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://app.roll20.net/editor/*"
+      ],
+      "js": [
+        "page/suppress-roll-beep.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
         "https://advanced-sheets.production.roll20preflight.net/*"
       ],
       "all_frames": true,
       "js": [
         "lib/core.js",
+        "lib/roll-format.js",
         "features/last-result.js",
         "features/roll-mode-keys.js",
+        "features/vtt-sidebar-tabs.js",
+        "features/vtt-chat.js",
         "features/icon-button-labels.js",
         "features/advantage-state.js",
         "features/control-labels.js",
@@ -53,6 +83,7 @@
     {
       "resources": [
         "sounds/roll.mp3",
+        "sounds/other-roll.mp3",
         "sounds/natural-20.mp3",
         "sounds/natural-1.mp3"
       ],
