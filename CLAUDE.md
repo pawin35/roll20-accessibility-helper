@@ -25,8 +25,13 @@ should load features it has no use for:
 
 | Entry | Frame | Holds |
 |---|---|---|
-| `app.roll20.net/characters/sheet/*` | top | compendium drag-and-drop replacement, icon labels |
+| `app.roll20.net/characters/sheet/*` | top | compendium drag-and-drop replacement, icon labels, the roll log and the "Last Result" box |
 | `advanced-sheets.production.roll20preflight.net/*` (`all_frames`) | sheet | everything about the sheet itself |
+
+Two files are listed in **both** entries and branch on `window.top === window`:
+`icon-button-labels.js` (both frames name icons the same way) and
+`last-result.js` / `roll-mode-keys.js` (the thing being read or clicked is in
+one frame, the key that triggers it is pressed in whichever frame has focus).
 
 All content scripts share one isolated-world global scope. `lib/core.js`
 publishes `window.Roll20A11y`; feature files consume it and must be listed
@@ -139,6 +144,64 @@ internal check reported a table built correctly while the user heard nothing,
 because the table was in a hidden duplicate panel. **Never report a sheet-frame
 change as working on the strength of the code alone.**
 
+## Roll results and the Roll Log
+
+Rolls are announced by `features/last-result.js`. The thing to understand
+before touching it is that **the Roll Log is in the top frame**, not the sheet
+— so unlike almost everything else here it is ordinary, scriptable,
+inspectable DOM. `javascript_tool` can read it directly; no report bridge
+needed.
+
+| Thing | Where |
+|---|---|
+| The drawer | `[data-testid="test-roll-log-drawer"]`, `role="dialog"`, `aria-modal="true"` |
+| Open/closed | `drawer.checkVisibility({checkVisibilityCSS: true})` |
+| Nav control that opens it | `button.roll-log-button` |
+| An entry | `.chat-container[data-messageid]`, newest **last** |
+| Entry body | `.chat-container__message` (the container itself also holds avatar initials and a timestamp) |
+| A sheet roll | contains `rolltemplate`; title `.header__title`, mode class `dnd-2024__header--Normal\|Advantage\|Disadvantage` |
+| Its breakdown | `.dnd-2024__bonus-list` → `.rt-formula__raw` / `.rt-formula__evaluated`, `.bonus__label` / `.bonus__value`, `.total__label` / `.total__value` |
+| A dice-tray roll | **no** `rolltemplate` — `.roll-result__main` with `.roll-result__formula`, `.roll-result__results .roll`, `.roll-result__total-number` |
+
+Facts that shaped the design, each learned the hard way:
+
+- **Capture from the log, never by intercepting roll buttons.** Roll controls
+  are spread over five unrelated selector families; every one of them lands here
+  as an entry. Do not add a per-button interception path — a new roll control
+  anywhere on the sheet is covered for free. (The *sound* is the one exception:
+  it must fire on the press, so it does use a selector list, and a control
+  missing from it costs a silent second, not a lost result.)
+- **Entries survive closing**, and the drawer body does not exist at all until
+  the drawer first opens.
+- **Do not close the drawer to get rid of it.** Element Plus restores focus to
+  the `<iframe>` element, and a screen reader re-enters the sheet *from the top
+  of the page*. This is worse than leaving it open. Hiding it with
+  `display: none` makes its focus trap a no-op instead — a hidden element cannot
+  be focused — after which closing it is harmless, because the restore lands on
+  something that already has focus and fires no event.
+- **Stripping the focus trap's `tabindex` does not work**: the trap falls
+  through to the close button. Verified, not assumed.
+- The **advantage/disadvantage** case needs no special handling: Roll20 renders
+  only the *kept* die, as a plain `1d20` with a single value.
+- **`aria-modal="true"` blanks the rest of the page** for a screen reader while
+  the drawer is genuinely open, including our own live region. Anything spoken
+  has to wait until it is closed or hidden.
+
+## Keyboard shortcuts
+
+There is no `commands` block in the manifest; these are page-level `keydown`
+listeners in capture phase. A shortcut must be registered in **both** frames —
+the key goes to whichever frame has focus, and focus is usually, but not
+always, in the sheet.
+
+| Key | Does |
+|---|---|
+| `alt+O` | Re-read the "Last Result" box |
+| `alt+A` / `alt+S` / `alt+Z` | Advantage / Normal / Disadvantage |
+
+`alt+S` selects Roll20's control labelled **"Automatic"** but is spoken as
+**"Normal"**.
+
 ## Test page
 
 `https://app.roll20.net/characters/sheet/18539970?sheet_shortname=dnd2024byroll20`
@@ -146,6 +209,17 @@ change as working on the strength of the code alone.**
 character**, so mutating it is fine. Still say what test data you left behind —
 removing a proficiency or language is not currently possible from the sheet UI
 by any route we have found, so anything added there stays.
+
+Rolling is cheap and safe: it only appends to the roll log, which is
+server-backed and shared across tabs, so a roll made in one tab shows up in
+another. That makes the log a good read-only source of real examples — running
+extraction logic over the accumulated history in `javascript_tool` checks it
+against dozens of real entries without rolling anything.
+
+Note that clicks dispatched into the sheet iframe by the `computer` tool are
+unreliable when the automated tab is backgrounded (`document.hidden === true`):
+the first roll after a page load usually fires and later ones often do not.
+Do not read that as the feature being broken.
 
 Never simulate a **real mouse drag** (`computer` tool `left_click_drag`) on the
 sheet: a drag that ends over an input has corrupted character stats (HP) before.
@@ -185,6 +259,40 @@ Roll20's page is Vue-based. These caused real, hard-to-diagnose bugs:
   never `attributes`.
 - **Chrome ignores `aria-hidden` on an element that contains focus.** Move
   focus away first, then hide — the reverse order silently does nothing.
+- **Never write state we depend on onto a Vue-owned element.** A class added to
+  Roll20's roll-log drawer survived exactly one roll: Vue rewrites `className`
+  when it re-renders on open and close, so the second roll flashed the drawer
+  open and stole focus again. Key CSS off `<html>` plus one of Roll20's own
+  stable attributes (`data-testid`) instead, so nothing has to survive
+  anywhere. The first-time-works-then-dies shape is the tell.
+- **Roll20 mounts *two* sheet iframes, and one of them is `0x0`.** Both run
+  every sheet content script, and the ghost contains a full duplicate of the
+  markup — so a feature that acts on what it finds will act twice, once
+  invisibly. A frame whose `document.body` has no size is the ghost and should
+  install nothing; the top frame must likewise post to the iframe that has a
+  size, not the first one it finds. This is the "panels can be duplicated" trap
+  one level up.
+- **`announce()` has two failure modes, both silent.** The live region must be
+  in the document *before* it is written to — one created and filled in the same
+  moment is not yet registered, and its first message is simply never spoken, so
+  `lib/core.js` builds it at load. And Chrome batches accessibility updates, so
+  clearing the region and putting the **same** string back within one frame nets
+  out to no change: a repeated message goes unspoken while a different one is
+  fine. Alternate calls therefore get a trailing ` `, which is not voiced.
+  Symptom: a shortcut that is silent when pressed twice but speaks the moment
+  you press a different one.
+- **There is not one `input[type="radio"]` on the sheet.** The radios are
+  Headless UI divs — `[role="radio"]` with `aria-checked`, grouped under
+  `[role="radiogroup"]` — and the group carries the current value in
+  `data-selectedvalue`, which is what to read rather than inferring it. Roll
+  mode is `.manage__roll-mode--radio`; `.manage__roll-privacy--radio` is a
+  near-identical sibling group holding Public/Whisper, so never match
+  `.poly-radio__button` unscoped.
+- **Headless UI focuses a radio option when you `click()` it.** `click()` does
+  not move focus on its own, but its handler does, as part of roving tabindex.
+  Anything driving these controls on the user's behalf must capture focus first
+  and put it back. Do not strip the option's `tabindex` to prevent it — that is
+  the same attribute Headless UI uses for arrow-key navigation within the group.
 - **The sheet is a cross-origin iframe**
   (`https://advanced-sheets.production.roll20preflight.net`). You cannot script
   into it, `contentDocument` is `null`, the a11y tree stops at the boundary, and
@@ -226,3 +334,12 @@ Two bundles, one per frame:
 Fetch in the page and string-search. The browser tool blocks returning long raw
 slices; replacing `=`, `;` and `?` before returning the string works around it
 (`clean()` in `lib/core.js` does exactly this).
+
+**The sheet bundle is not reachable from the top frame.** Getting its hash
+needs a network request made *by the sheet frame*, and `read_network_requests`
+does not surface the iframe's subresources — it returns nothing for
+`advanced-sheets`, `sheet.js` or `cdn.roll20.net`. Fetching the frame's own
+document URL to read the script tag out of it fails too: the preflight origin
+sends no CORS headers, so it is a bare `TypeError: Failed to fetch`. Both were
+tried. When the question is about sheet markup, go straight to the probe —
+it is faster than either route and answers the actual question.

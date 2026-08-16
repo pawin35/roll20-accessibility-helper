@@ -70,6 +70,32 @@
   display: contents;
 }
 
+/*
+ * Roll20's Roll Log drawer opens itself on every roll and its focus trap
+ * immediately focuses inside it, which throws a screen reader out of the sheet.
+ * Closing it again is worse, not better: Element Plus then restores focus to
+ * the <iframe> element, and a screen reader re-enters the sheet from the very
+ * top of the page.
+ *
+ * A `display: none` element cannot be focused, so hiding the drawer turns its
+ * focus trap into a no-op. Roll20 still opens it, still renders the roll into
+ * it, and focus never moves at all — verified on the live page. Because it is
+ * never closed, the restore never fires either.
+ *
+ * The toggle class goes on <html>, and the drawer is matched by Roll20's own
+ * `data-testid`. Nothing is written to the drawer element itself, deliberately:
+ * a class put there is wiped the moment Vue re-renders the drawer, which it
+ * does on every open and close. That failed in exactly the way this kind of
+ * bug always does — the first roll behaved, and every roll after it flashed the
+ * drawer open, took focus, and threw the screen reader to the top of the page.
+ *
+ * Being plain CSS, this is also in force from document_start, so there is no
+ * window during startup where the drawer could appear at all.
+ */
+html:not(.r20a11y-roll-log-visible) [data-testid="test-roll-log-drawer"] {
+  display: none !important;
+}
+
 .r20a11y-btn {
   margin: 4px 8px;
   padding: 3px 10px;
