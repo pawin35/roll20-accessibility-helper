@@ -22,14 +22,16 @@ styles.css                               all classes namespaced `r20a11y-`
 lib/core.js                              shared helpers, MUST load first
 lib/roll-format.js                       reads a dnd-2024 rolltemplate; after core
 features/<one-file-per-feature>.js       features
-page/<one-file-per-shim>.js              runs in the PAGE's world, not ours
+page/<shim>.js                           runs in the PAGE's world, not ours
 ```
 
 **`page/` is not `features/`.** Anything in there is registered with
 `"world": "MAIN"` and runs in Roll20's own JavaScript context: no `chrome.*`, no
 `window.Roll20A11y`, none of the isolated world's globals. It exists only for
-things that genuinely cannot be done from a content script — currently one
-thing, suppressing Roll20's chat beep on a roll. Reach for it last.
+things that genuinely cannot be done from a content script — currently two
+things: suppressing Roll20's chat beep on a roll, and the battle-grid bridge
+(see below), which needs `Campaign`, a page-world-only object. Reach for it
+last.
 
 Four `content_scripts` entries covering **two different Roll20 pages** plus the
 sheet iframe, which is embedded in both of them. The VTT has two entries because
@@ -39,7 +41,7 @@ one of them runs in the page's own world:
 |---|---|---|
 | `app.roll20.net/characters/sheet/*` | top | compendium drag-and-drop replacement, icon labels, the roll log and the "Last Result" box |
 | `app.roll20.net/editor/*` | top | the VTT: sidebar tabs, the text chat, roll-mode keys |
-| `app.roll20.net/editor/*` (`world: MAIN`) | top, page world | one shim: suppressing Roll20's chat beep on a roll |
+| `app.roll20.net/editor/*` (`world: MAIN`) | top, page world | two shims: suppressing Roll20's chat beep on a roll, and the battle-grid bridge |
 | `advanced-sheets.production.roll20preflight.net/*` (`all_frames`) | sheet | everything about the sheet itself |
 
 The **character sheet page** and the **VTT** are different pages with almost
@@ -58,6 +60,9 @@ Several files are listed in **more than one** entry and branch on
   is the *VTT* top frame. Their sheet halves are also loaded on the character
   sheet page, where the posts reach a parent with no listener and do nothing.
   That is deliberate: the sheet frame cannot tell which page embeds it.
+- `map-grid.js` — the grid lives in the VTT top frame, but `alt+M` (jump to my
+  token) is forwarded from the sheet frame, so its sheet half only forwards the
+  key and listens for the failure reply.
 
 All content scripts share one isolated-world global scope. `lib/core.js`
 publishes `window.Roll20A11y`; feature files consume it and must be listed
@@ -378,6 +383,101 @@ that the **sheet frame still plays `roll.mp3` on the press** of a sheet roll
 button (`last-result.js`), which is a separate mechanism and is why "your own
 rolls are silent" is not literally silent.
 
+## The battle grid ("Map grid")
+
+A screen-reader-only `<table>` built at the end of the VTT document that mirrors
+the page's grid: one row per grid row, one cell per column, each token placed in
+the cell it occupies, spoken with its name, facing, and — for player-controlled
+characters — hit points. Reached by table navigation or the "Map grid" heading;
+it is visually hidden and nothing in it is ever focused. There are no row or
+column headers: every cell carries its own coordinate, so an empty cell reads
+"blank, A1" and an occupied one "Brother Lorian — 12 hit points, facing west,
+F4". Column letters are uppercase, row numbers start at 1 from the top.
+
+Unlike everything else in this extension, this is driven by Roll20's **model**,
+not its DOM: the tabletop renders to an opaque WebGL canvas with zero DOM, but
+`Campaign` (page world) exposes the whole page and token model. That forces the
+two-file split:
+
+- `page/tabletop-bridge.js` (`world: MAIN`) owns the `Campaign` subscription and
+  forwards three verbs over `window.postMessage` — `r20a11yGridInit` (geometry +
+  all tokens), `r20a11yGridDelta` (one token's new state), `r20a11yGridRemoved`.
+  All presentation stays out of it.
+- `features/map-grid.js` (isolated world) builds the table, keeps it in step,
+  synthesises a change tone and announces through `Roll20A11y.announce()`.
+
+Facts that shaped the design, each verified live against campaign 21893368:
+
+- **HP is not on the token.** The new advanced sheet stores a character's whole
+  state in an attribute literally named `store`; hit points are at the `store`
+  model's `current.hitpoints.currentHP`. There is **no stored maximum** (the
+  sheet computes it from hit dice), so only current and temporary HP are read.
+  Read it via `character.attribs.models` — `attribs.each()` over a not-yet-loaded
+  store iterates nothing, which looks exactly like a broken selector.
+- **Backbone here is 0.9.2.** Collections have no `listenTo`; `set` fires
+  `change`/`change:attr` only on a *real* change (equality-checked), so writing
+  the same value back is a silent no-op — an event test can look dead when the
+  mechanism is fine.
+- **The map background is a graphic on the `map` layer**, and the only reliable
+  way to tell it from furniture on that layer is that its `imgsrc` shares the
+  file id with the page's `thumbnail`
+  (`…/tKH66NDLvof2Axn_Sc2Efg/max.jpg` vs `…/thumb.jpg`). `layer` alone is not
+  enough, and its size is not the full page.
+- **"Player-controlled"** = the represented character's `controlledby` is
+  non-empty; HP is shown only then, so the GM's secret monsters do not leak hit
+  points.
+- **Facing** is the token's `rotation` (degrees counter-clockwise, 0 = north,
+  90 = west), rounded to the nearest of 8 compass points. (5e has no facing
+  rules and the vision cone is the "real" facing — `rotation` is the pragmatic
+  answer.)
+- **A drag is many events.** `change:left`/`change:top`/`change:lastmove` fire
+  repeatedly; the bridge tracks only the attributes that matter, coalesces to one
+  message per token per tick, and the feature debounces sound + announcement
+  ~150 ms so a move is spoken once. Selection is never forwarded.
+- **"Mine" (alt+M) is the token's `controlledby` naming the current player.**
+  `window.currentPlayer` (page world) gives the player id; the bridge flags a
+  token `mine` when its own `controlledby` or its represented character's
+  contains that id (`"all"` does not count). A player can control *several*
+  characters — in the test campaign `Punnaphoj` controls both — so alt+M focuses
+  the first by grid order and says how many there are when more than one. It is
+  loaded in the sheet frame too, where it only forwards the key, so it works
+  from either frame.
+
+### Terrain identification ("Identify terrain")
+
+`features/terrain.js` labels each cell with a short terrain phrase so an empty
+cell reads "sand, A1" instead of "blank, A1", and a token cell reads
+"… facing west, on wooden deck, F4". It is a separate feature file but writes
+into `map-grid.js`'s cells, so it exposes a tiny hook on
+`Roll20A11y.terrain = { bind(section, reRender, getBackground, getGrid), labelAt(col, row), reset() }`;
+`map-grid.js` binds it once when its section is first built and consults
+`labelAt` in `writeCell`/`tokenText`.
+
+The button is screen-reader-only, inside the map-grid section above the table,
+pressed on demand. On press it fetches the background image, resamples it onto
+the grid, and sends it to Gemini with **structured output**
+(`response_mime_type: application/json` + `response_schema` describing a fixed
+R×C array of strings).
+
+Facts that shaped it:
+
+- **The background image is CORS-clean and scaled.** `fetch` on its `imgsrc`
+  returns `access-control-allow-origin: *`, and its natural size differs from its
+  world footprint (measured 1249×2048 placed at 1068×1750) — so it must be drawn
+  at its `left/top/width/height` placement into a page-size canvas, not assumed
+  1:1. `left`/`top` are the centre, so top-left = centre − size/2.
+- **Only whole cells are sent.** The covered region is `ceil`/`floor` of the
+  image bounds over `snapTo`; partially covered cells are left `blank` (a JPEG
+  would turn their transparent slivers black). The crop is downscaled to 32px
+  per cell before sending.
+- **The API key** is asked for once with `window.prompt` (top frame, so allowed),
+  stored in `chrome.storage.local` (isolated-world-only, needs the `"storage"`
+  permission in the manifest), and cleared when Google rejects it so the next
+  press re-prompts. Nothing is cached: every press re-fetches, and a page switch
+  calls `reset()`.
+- **The model id** is a one-line constant, currently `gemini-3.5-flash-lite`
+  (2.5 Flash-Lite is retired).
+
 ## Keyboard shortcuts
 
 There is no `commands` block in the manifest; these are page-level `keydown`
@@ -394,12 +494,13 @@ always, in the sheet. Matched on `event.code`, so a non-US layout still works.
 | `alt+[` / `alt+]` | Previous / next chat message | VTT |
 | `alt+shift+[` / `alt+shift+]` | First / last chat message | VTT |
 | `alt+shift+C` | Prompt for a line and send it to chat | VTT |
+| `alt+M` | Focus the grid cell holding the current player's token | VTT |
 
 `alt+S` selects Roll20's control labelled **"Automatic"** but is spoken as
 **"Normal"**.
 
 The four chat-navigation keys and `alt+O` **never move focus** — they only
-speak. `alt+shift+<n>` is the one that does, deliberately.
+speak. `alt+shift+<n>` and `alt+M` are the ones that do, deliberately.
 
 `alt+[` at the first message and `alt+]` at the last also sound a short tone —
 440 Hz for the start of the log, 660 Hz for the end — synthesised with a Web

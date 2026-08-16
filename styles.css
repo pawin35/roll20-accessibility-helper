@@ -124,3 +124,22 @@ html:not(.r20a11y-roll-log-visible) [data-testid="test-roll-log-drawer"] {
   opacity: 0.65;
   cursor: default;
 }
+
+/* The battle-grid table is screen-reader-only: a real <table> appended to the
+   end of <body>, visually hidden but present in the accessibility tree so a
+   screen reader can navigate it cell by cell. It deliberately does not reuse
+   `.r20a11y-visually-hidden`, which sets `white-space: nowrap` for single-line
+   names; a table needs normal wrapping. Nothing inside is focusable, so the
+   clip pattern cannot strand focus. */
+.r20a11y-map-grid {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: normal;
+  border: 0;
+  padding: 0;
+  margin: -1px;
+}

@@ -1,8 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Roll20 Accessibility Helper",
-  "version": "1.12.0",
-  "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, spoken roll results that do not steal focus, a VTT text chat read one line per message with keyboard navigation, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
+  "version": "1.14.0",
+  "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, spoken roll results that do not steal focus, a VTT text chat read one line per message with keyboard navigation, a screen-reader battle-grid table for the VTT, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
+  "permissions": [
+    "storage"
+  ],
   "content_scripts": [
     {
       "matches": [
@@ -30,7 +33,9 @@
         "lib/roll-format.js",
         "features/roll-mode-keys.js",
         "features/vtt-sidebar-tabs.js",
-        "features/vtt-chat.js"
+        "features/vtt-chat.js",
+        "features/map-grid.js",
+        "features/terrain.js"
       ],
       "css": [
         "styles.css"
@@ -49,6 +54,16 @@
     },
     {
       "matches": [
+        "https://app.roll20.net/editor/*"
+      ],
+      "js": [
+        "page/tabletop-bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
         "https://advanced-sheets.production.roll20preflight.net/*"
       ],
       "all_frames": true,
@@ -59,6 +74,7 @@
         "features/roll-mode-keys.js",
         "features/vtt-sidebar-tabs.js",
         "features/vtt-chat.js",
+        "features/map-grid.js",
         "features/icon-button-labels.js",
         "features/advantage-state.js",
         "features/control-labels.js",

@@ -57,7 +57,7 @@ world, which needs `"world": "MAIN"` support).
 
 All shortcuts work **from anywhere on the page**, including while focus is
 inside the character sheet's iframe. None of them move focus except
-`alt+shift+<n>`, which is meant to.
+`alt+shift+<n>` and `alt+M`, which are meant to.
 
 ### Rolling
 
@@ -115,6 +115,16 @@ Library, Journal, Compendium, Jukebox, Collections, Announcements, Settings. The
 tab is announced by name when it opens, so you do not have to memorise which
 number is which.
 
+### Map grid — game session only
+
+| Key | Does |
+| --- | --- |
+| `alt+M` | Focus the grid cell holding your token |
+
+Jump to where your character stands, then walk the grid from there with your
+screen reader's table navigation. If you control several characters, it focuses
+the first and tells you how many are on the map; if you have none, it says so.
+
 ---
 
 ## Features — game session (VTT)
@@ -171,6 +181,35 @@ that tells you more:
 | **A natural 20 or natural 1** | its own fanfare — whoever rolled it |
 | You rolled anything else | nothing; you already know |
 
+### The battle grid as a table
+
+The VTT renders the battle map to an opaque canvas — no DOM, nothing a screen
+reader can walk. The extension reads Roll20's own token model instead and builds
+a screen-reader-only table at the end of the page: one cell per grid square,
+each token placed where it stands, spoken as
+
+```
+Brother Lorian — 12 hit points, facing west, F4
+```
+
+with an empty square reading `blank, A1`. Column letters are uppercase, row
+numbers start at 1 from the top. Hit points are read only for characters
+controlled by a player, so a GM's secret monsters do not leak them. When the GM
+moves a token, the table updates immediately, plays a short tone, and announces
+the move. `alt+M` jumps focus to your own token.
+
+### Terrain identification
+
+Press the **Identify terrain** button (inside the "Map grid" section) and the
+extension fetches the map's background image and asks a Gemini model to label
+every square — `sand`, `wooden deck`, `stone pillar`, `water` — so a square reads
+`sand, A1` and a token reads `… facing west, on wooden deck, F4`.
+
+The first press asks for a **Gemini API key** (a `window.prompt`); it is stored
+in the extension's own `chrome.storage.local` and cleared if Google rejects it.
+Nothing is cached: every press re-fetches, and the image is downscaled before it
+is sent.
+
 ---
 
 ## Features — character sheet
@@ -221,7 +260,7 @@ styles.css                               Shared styles (all `r20a11y-` prefixed)
 lib/core.js                              Shared helpers, loaded first
 lib/roll-format.js                       Reads a D&D 2024 roll template
 features/<one-per-feature>.js            One feature per file
-page/<one-per-shim>.js                   Runs in Roll20's own JS world
+page/<shim>.js                           Runs in Roll20's own JS world
 sounds/                                  Audio assets
 ```
 
@@ -236,10 +275,12 @@ Two structural points worth knowing:
 - **The character sheet is a cross-origin iframe.** Shortcuts are registered in
   both the page and the sheet and forwarded across, because a keypress only
   reaches whichever frame has focus.
-- **One file runs in Roll20's own JavaScript world** (`page/`). Roll20 plays its
+- **Two files run in Roll20's own JavaScript world** (`page/`). Roll20 plays its
   chat beep through an audio element it never puts in the document, so there is
-  nothing for a normal content script to mute. That is the only reason the
-  `page/` directory exists.
+  nothing for a normal content script to mute — and the battle-map model
+  (`Campaign`, token positions, grid geometry, hit points) only exists there. A
+  small bridge forwards that model to the isolated world, which does all the
+  presentation. Those are the only reasons the `page/` directory exists.
 
 Contributor notes, including the traps that produced real bugs, are in
 [`CLAUDE.md`](CLAUDE.md).
@@ -262,6 +303,10 @@ Contributor notes, including the traps that produced real bugs, are in
   and `/r`.
 - Compendium adding is verified end-to-end for **Items**. Spells, Feats and
   Features use the same code path but are less tested.
+- **Terrain identification calls Google's Gemini API** with your own key. The
+  map's background image is cropped and downscaled before it is sent, and
+  nothing is stored — but it is a network call to a third party, so turn it off
+  (just don't press the button) if that matters to you.
 - This depends on Roll20's undocumented internals. It fails safe — if an
   expected element is missing it announces a plain failure rather than throwing
   or silently doing nothing — but a Roll20 deploy can break a feature.

@@ -13,3 +13,6 @@ Thumbs.db
 # Windows "downloaded from the internet" markers, created next to each file
 # when the sounds are copied in from a browser download.
 *:Zone.Identifier
+
+# opencode session logs
+session-*.md
