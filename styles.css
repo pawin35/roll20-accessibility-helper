@@ -2,6 +2,15 @@
    Everything is namespaced with `r20a11y-` to avoid colliding with Roll20's
    own CSS. */
 
+:root {
+  --r20a11y-border: #8a5a2b;
+  --r20a11y-bg: #3a2412;
+  --r20a11y-bg-darker: #2a1a10;
+  --r20a11y-bg-hover: #5a371a;
+  --r20a11y-text: #f2d9b3;
+  --r20a11y-focus: #f2a900;
+}
+
 /* Screen-reader-only. `position: absolute` is load-bearing, not incidental:
    Roll20's ABILITIES and SKILLS panels are CSS grid/subgrid, and an in-flow
    element injected into them would occupy a grid cell and shift the columns. */
@@ -48,11 +57,11 @@
   margin: 2px;
   padding: 2px 8px;
   font-size: 12px;
-  border: 1px solid #8a5a2b;
+  border: 1px solid var(--r20a11y-border);
   border-radius: 4px;
-  background: #3a2412;
-  color: #f2d9b3;
-  outline: 2px solid #f2a900;
+  background: var(--r20a11y-bg);
+  color: var(--r20a11y-text);
+  outline: 2px solid var(--r20a11y-focus);
   outline-offset: 2px;
 }
 
@@ -102,21 +111,21 @@ html:not(.r20a11y-roll-log-visible) [data-testid="test-roll-log-drawer"] {
   font-size: 12px;
   line-height: 1.6;
   border-radius: 4px;
-  border: 1px solid #8a5a2b;
-  background: #3a2412;
-  color: #f2d9b3;
+  border: 1px solid var(--r20a11y-border);
+  background: var(--r20a11y-bg);
+  color: var(--r20a11y-text);
   cursor: pointer;
   font-family: inherit;
 }
 
 .r20a11y-btn:hover {
-  background: #5a371a;
+  background: var(--r20a11y-bg-hover);
 }
 
 /* Keep a clearly visible keyboard focus indicator — this extension exists to
    make the page usable without a mouse. */
 .r20a11y-btn:focus-visible {
-  outline: 2px solid #f2a900;
+  outline: 2px solid var(--r20a11y-focus);
   outline-offset: 2px;
 }
 
@@ -164,11 +173,11 @@ html:not(.r20a11y-roll-log-visible) [data-testid="test-roll-log-drawer"] {
    shown with showModal(), so the browser draws the ::backdrop and centres it;
    this only gives it the extension's dark parchment look. */
 .r20a11y-modal {
-  border: 1px solid #8a5a2b;
+  border: 1px solid var(--r20a11y-border);
   border-radius: 6px;
   padding: 16px;
-  background: #2a1a10;
-  color: #f2d9b3;
+  background: var(--r20a11y-bg-darker);
+  color: var(--r20a11y-text);
   font-size: 13px;
   min-width: 240px;
 }
@@ -186,7 +195,7 @@ html:not(.r20a11y-roll-log-visible) [data-testid="test-roll-log-drawer"] {
 .r20a11y-modal [role="listbox"] {
   max-height: 260px;
   overflow-y: auto;
-  border: 1px solid #8a5a2b;
+  border: 1px solid var(--r20a11y-border);
   border-radius: 4px;
   margin: 4px 0 8px;
   min-width: 200px;
@@ -198,8 +207,8 @@ html:not(.r20a11y-roll-log-visible) [data-testid="test-roll-log-drawer"] {
 }
 
 .r20a11y-modal [role="option"][aria-selected="true"] {
-  background: #5a371a;
-  color: #f2d9b3;
-  outline: 2px solid #f2a900;
+  background: var(--r20a11y-bg-hover);
+  color: var(--r20a11y-text);
+  outline: 2px solid var(--r20a11y-focus);
   outline-offset: -2px;
 }

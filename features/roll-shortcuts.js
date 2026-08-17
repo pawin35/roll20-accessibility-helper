@@ -343,39 +343,30 @@
     replyDone();
   }
 
-  // --- Initiative -------------------------------------------------------
+  // --- Direct sends (initiative, death save, state) --------------------
 
-  function sendInitiative() {
+  function sendDirect(text) {
     const name = currentCharacterName();
     if (!name) {
       announce("You have no character to roll as.");
       return;
     }
-    sendChat("%{" + name + "|initiative}", document.activeElement, "");
+    sendChat(text.replace(/\{name\}/g, name), document.activeElement, "");
   }
 
-  // --- Death save & state ----------------------------------------------
+  function sendInitiative() {
+    sendDirect("%{name|initiative}");
+  }
 
   function sendDeathSave() {
-    const name = currentCharacterName();
-    if (!name) {
-      announce("You have no character to roll as.");
-      return;
-    }
-    sendChat("%{" + name + "|death_save}", document.activeElement, "");
+    sendDirect("%{name|death_save}");
   }
 
   function sendState() {
-    const name = currentCharacterName();
-    if (!name) {
-      announce("You have no character to roll as.");
-      return;
-    }
-    const text =
-      '/w "' + name + '" HP @{' + name + "|hp} out of @{" + name +
-      "|hp|max}, with @{" + name + "|hp_temp} temp HP, AC is at @{" +
-      name + "|ac}";
-    sendChat(text, document.activeElement, "");
+    sendDirect(
+      '/w "{name}" HP @{name|hp} out of @{name|hp|max}, ' +
+      'with @{name|hp_temp} temp HP, AC is at @{name|ac}'
+    );
   }
 
   // --- Routing ----------------------------------------------------------
