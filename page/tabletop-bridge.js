@@ -135,6 +135,34 @@
     return current.hitpoints;
   }
 
+  /**
+   * The names of the character's active conditions (Blinded, Prone, …), read
+   * from the same `store` that carries hit points. Conditions are "integrants"
+   * of type "Condition" whose `_active` flag is set. Returns null when the
+   * store has not loaded yet (so a load is distinguishable from "no
+   * conditions"), otherwise a sorted array, so the same set in a different
+   * order reads as no change.
+   */
+  function conditionsOf(character) {
+    var store = storeModelOf(character);
+    if (!store) return null;
+    var current = store.get && store.get("current");
+    if (!current) return null;
+    var integ = current.integrants && current.integrants.integrants;
+    var names = [];
+    if (integ) {
+      for (var key in integ) {
+        if (!integ.hasOwnProperty(key)) continue;
+        var it = integ[key];
+        if (it && it._active && it.type === "Condition") {
+          names.push(it.name || it.defaultName || "");
+        }
+      }
+    }
+    names.sort();
+    return names;
+  }
+
   function characterOf(model) {
     var represents = model.get("represents");
     if (!represents) return null;
@@ -187,6 +215,7 @@
       tempHP: hp && hp.tempHP != null ? hp.tempHP : 0,
       playerControlled: controlled,
       mine: isMine(model, character),
+      conditions: conditionsOf(character),
     };
   }
 

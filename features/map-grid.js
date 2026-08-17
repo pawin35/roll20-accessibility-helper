@@ -106,6 +106,29 @@
     return { col, row };
   }
 
+  /**
+   * The cells a token's footprint covers. `width`/`height` are pixel footprints,
+   * so a Large (2×2) token spans `round(width/snapTo)` columns and rows; `cellOf`
+   * still returns the top-left cell (used for alt+M and grid-order sorting).
+   */
+  function cellsOf(token, snapTo) {
+    const left = Number(token.left) || 0;
+    const top = Number(token.top) || 0;
+    const w = Number(token.width) || 0;
+    const h = Number(token.height) || 0;
+    const col0 = Math.floor((left - w / 2) / snapTo);
+    const row0 = Math.floor((top - h / 2) / snapTo);
+    const colSpan = Math.max(1, Math.round(w / snapTo));
+    const rowSpan = Math.max(1, Math.round(h / snapTo));
+    const cells = [];
+    for (let r = row0; r < row0 + rowSpan; r++) {
+      for (let c = col0; c < col0 + colSpan; c++) {
+        cells.push({ col: c, row: r });
+      }
+    }
+    return cells;
+  }
+
   function cellRef(col, row) {
     return colLabel(col) + (row + 1);
   }
@@ -136,9 +159,76 @@
     const hp = hpText(token);
     if (hp) text += " \u2014 " + hp;
     text += ", facing " + facing(token.rotation);
+    const conds = (token.conditions || [])
+      .filter(Boolean)
+      .map((c) => c.toLowerCase())
+      .join(", ");
+    if (conds) text += ", " + conds;
     const terrain = cellLabel(col, row);
     if (terrain) text += ", on " + terrain;
     return text;
+  }
+
+  /**
+   * Directional announcements for the attribute-only changes in a same-cell
+   * delta. Returns [] when nothing worth announcing changed — including the
+   * initial store load (HP or conditions becoming available) and store writes
+   * that leave HP, facing, conditions and name untouched.
+   */
+  function attributeChanges(prev, token) {
+    const changes = [];
+
+    // HP only exists for player-controlled tokens and only once the store has
+    // loaded; requiring both sides non-null makes the null → value load silent
+    // while still catching a real damage/heal.
+    if (prev.hp != null && token.hp != null) {
+      const prevTemp = prev.tempHP || 0;
+      const tokenTemp = token.tempHP || 0;
+      if (prev.hp !== token.hp || prevTemp !== tokenTemp) {
+        const parts = [];
+        if (token.hp !== prev.hp) {
+          parts.push(
+            token.hp < prev.hp
+              ? "took damage: " + token.hp + " hit points"
+              : "healed: " + token.hp + " hit points"
+          );
+        }
+        if (tokenTemp !== prevTemp) {
+          parts.push(
+            tokenTemp > prevTemp
+              ? "gained " + (tokenTemp - prevTemp) + " temporary hit points"
+              : "lost " + (prevTemp - tokenTemp) + " temporary hit points"
+          );
+        }
+        if (parts.length) changes.push(nameOf(token) + " " + parts.join("; ") + ".");
+      }
+    }
+
+    // `facing` rounds to the 8 compass points the grid displays, so a sub-45°
+    // nudge is silent. Announced for every token, player-controlled or not.
+    if (facing(prev.rotation) !== facing(token.rotation)) {
+      changes.push(nameOf(token) + " turned to face " + facing(token.rotation) + ".");
+    }
+
+    // Conditions: only once both sides are loaded (null = store not yet loaded),
+    // so the initial load does not announce a burst of "is X" for conditions
+    // the character already had.
+    if (prev.conditions != null && token.conditions != null) {
+      const added = token.conditions.filter((c) => prev.conditions.indexOf(c) < 0);
+      const removed = prev.conditions.filter((c) => token.conditions.indexOf(c) < 0);
+      for (const c of added) {
+        changes.push(nameOf(token) + " is " + c.toLowerCase() + ".");
+      }
+      for (const c of removed) {
+        changes.push(nameOf(token) + " is no longer " + c.toLowerCase() + ".");
+      }
+    }
+
+    if (prev.name && token.name && prev.name !== token.name) {
+      changes.push(prev.name + " renamed to " + token.name + ".");
+    }
+
+    return changes;
   }
 
   // --- The table ---------------------------------------------------------
@@ -244,12 +334,13 @@
 
   function place(token) {
     grid.tokens.set(token.id, token);
-    const cell = cellOf(token, grid.snapTo);
-    const key = keyOf(cell.col, cell.row);
-    if (!grid.byCell.has(key)) grid.byCell.set(key, []);
-    const ids = grid.byCell.get(key);
-    if (ids.indexOf(token.id) < 0) ids.push(token.id);
-    writeCell(cell.col, cell.row);
+    for (const cell of cellsOf(token, grid.snapTo)) {
+      const key = keyOf(cell.col, cell.row);
+      if (!grid.byCell.has(key)) grid.byCell.set(key, []);
+      const ids = grid.byCell.get(key);
+      if (ids.indexOf(token.id) < 0) ids.push(token.id);
+      writeCell(cell.col, cell.row);
+    }
   }
 
   // --- The change tone ---------------------------------------------------
@@ -358,42 +449,50 @@
     if (!grid || !delta || !delta.token || delta.pageId !== grid.pageId) return;
     const token = delta.token;
     const prev = grid.tokens.get(token.id);
-    const prevCell = prev ? cellOf(prev, grid.snapTo) : null;
-    const newCell = cellOf(token, grid.snapTo);
+    const prevCells = prev ? cellsOf(prev, grid.snapTo) : null;
+    const newCells = cellsOf(token, grid.snapTo);
+    const newCell = newCells[0];
 
-    if (prevCell && (prevCell.col !== newCell.col || prevCell.row !== newCell.row)) {
-      const ids = grid.byCell.get(keyOf(prevCell.col, prevCell.row));
-      if (ids) {
-        const i = ids.indexOf(token.id);
-        if (i >= 0) ids.splice(i, 1);
-        writeCell(prevCell.col, prevCell.row);
+    if (prevCells) {
+      for (const cell of prevCells) {
+        const ids = grid.byCell.get(keyOf(cell.col, cell.row));
+        if (ids) {
+          const i = ids.indexOf(token.id);
+          if (i >= 0) ids.splice(i, 1);
+          writeCell(cell.col, cell.row);
+        }
       }
     }
     place(token);
 
     const name = nameOf(token);
     const ref = cellRef(newCell.col, newCell.row);
-    let phrase;
+    const prevCell = prevCells ? prevCells[0] : null;
     if (!prev) {
-      phrase = name + " placed at " + ref + ".";
+      queue(token.id, name + " placed at " + ref + ".");
     } else if (!prevCell || prevCell.col !== newCell.col || prevCell.row !== newCell.row) {
-      phrase = name + " moved to " + ref + ".";
+      queue(token.id, name + " moved to " + ref + ".");
     } else {
-      phrase = ref + ": " + tokenText(token, newCell.col, newCell.row) + ".";
+      // Same cell: only attribute changes are possible. place() has already
+      // rewritten the cell, so the grid is correct regardless; announce only
+      // real changes and stay silent for the initial store load and for store
+      // writes that change nothing we show.
+      const changes = attributeChanges(prev, token);
+      if (changes.length) queue(token.id, changes.join(" "));
     }
-    queue(token.id, phrase);
   }
 
   function handleRemoved(msg) {
     if (!grid || !msg || msg.pageId !== grid.pageId) return;
     const prev = grid.tokens.get(msg.id);
     if (!prev) return;
-    const cell = cellOf(prev, grid.snapTo);
-    const ids = grid.byCell.get(keyOf(cell.col, cell.row));
-    if (ids) {
-      const i = ids.indexOf(msg.id);
-      if (i >= 0) ids.splice(i, 1);
-      writeCell(cell.col, cell.row);
+    for (const cell of cellsOf(prev, grid.snapTo)) {
+      const ids = grid.byCell.get(keyOf(cell.col, cell.row));
+      if (ids) {
+        const i = ids.indexOf(msg.id);
+        if (i >= 0) ids.splice(i, 1);
+        writeCell(cell.col, cell.row);
+      }
     }
     grid.tokens.delete(msg.id);
     queue("!" + msg.id, nameOf(prev) + " removed.");

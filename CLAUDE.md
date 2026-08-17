@@ -447,6 +447,23 @@ Facts that shaped the design, each verified live against campaign 21893368:
   repeatedly; the bridge tracks only the attributes that matter, coalesces to one
   message per token per tick, and the feature debounces sound + announcement
   ~150 ms so a move is spoken once. Selection is never forwarded.
+- **Only real changes are announced, directionally.** Opening a character sheet
+  loads its `store` attribute, which fires `store.on("change")` in the bridge and
+  re-emits every token that represents that character (so the grid's HP stays in
+  step). The feature diffs the incoming token against its previous state and
+  announces only what actually changed: a cell move, placement or removal; a
+  hit-point change (`took damage:` / `healed:`, player-controlled tokens only,
+  and both sides non-null so the initial null → value store load is silent); a
+  facing change (`turned to face X`, every token); a condition gained or ended
+  (`is blinded` / `is no longer prone`); or a rename (`X renamed to Y`). Store
+  writes that change none of these rewrite the cell silently.
+- **Conditions live in the `store`, not on the token.** Like hit points, they
+  are read from `store.current`, at `integrants.integrants.<id>` where each
+  "Condition"-typed integrant carries `_active` and `name`. The bridge forwards
+  a sorted array of active condition names (`conditionsOf`, null until the store
+  loads), the grid appends them to the cell text ("… facing west, blinded,
+  prone, F4"), and `attributeChanges` announces gains/losses only once both
+  sides are non-null, so the initial load stays silent.
 - **"Mine" (alt+M) is the token's `controlledby` naming the current player.**
   `window.currentPlayer` (page world) gives the player id; the bridge flags a
   token `mine` when its own `controlledby` or its represented character's
@@ -455,6 +472,12 @@ Facts that shaped the design, each verified live against campaign 21893368:
   the first by grid order and says how many there are when more than one. It is
   loaded in the sheet frame too, where it only forwards the key, so it works
   from either frame.
+- **A token larger than one square fills every cell it covers.** `width`/`height`
+  are pixel footprints, so a Large (2×2) or Huge (3×3) creature spans
+  `round(width/snapTo)` columns and rows; the grid writes it into each covered
+  cell (`cellsOf`), `alt+M` and grid-order sorting still use the top-left cell,
+  and Relative position measures distance to the nearest covered cell but points
+  the o'clock bearing at the footprint's centre.
 
 ### Terrain identification ("Identify terrain")
 

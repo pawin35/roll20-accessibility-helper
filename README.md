@@ -209,15 +209,22 @@ a screen-reader-only table at the end of the page: one cell per grid square,
 each token placed where it stands, spoken as
 
 ```
-Brother Lorian — 12 hit points, facing west, F4
+Brother Lorian — 12 hit points, facing west, blinded, prone, F4
 ```
 
 with an empty square reading `blank, A1`. Column letters are uppercase, row
 numbers start at 1 from the top. Hit points are read only for characters
-controlled by a player, so a GM's secret monsters do not leak them. When the GM
-moves a token, the table updates immediately, plays a short tone, and announces
-the move. `alt+M` jumps focus to your own token, and the arrow keys then walk
-the grid cell by cell.
+controlled by a player, so a GM's secret monsters do not leak them; facing and
+active conditions (blinded, prone, …) are read for every token. A token larger
+than one square fills every cell it covers.
+
+The table stays in step with the sheet, and real changes are announced
+directionally, each with a short tone: a token moved, placed or removed; a
+hit-point change ("took damage: 7 hit points" / "healed: 15 hit points"); a
+facing change ("turned to face west"); a condition gained or ended ("is
+blinded" / "is no longer prone"); or a rename. Opening a character sheet just
+to look does not announce anything. `alt+M` jumps focus to your own token, and
+the arrow keys then walk the grid cell by cell.
 
 ### Relative position
 

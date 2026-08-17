@@ -13,8 +13,9 @@
  * postMessage verbs, which this file consumes independently of
  * `features/map-grid.js`. It never writes into the grid's cells, so there is
  * no bind() hook as terrain has; it maintains its own token map from the same
- * messages. The section is always live — rebuilt silently on every delta — and
- * reached by its heading, never announced on change.
+ * messages. The section is always live — rebuilt silently, debounced ~150 ms so
+ * a drag renders once per burst — and reached by its heading, never announced
+ * on change.
  *
  * Distance uses Roll20's own measurement: grid squares counted per the page's
  * `diagonaltype` ("foure" = diagonals cost one square, the D&D 5e default),
@@ -71,6 +72,29 @@
     const col = Math.floor((Number(token.left) - Number(token.width) / 2) / snapTo);
     const row = Math.floor((Number(token.top) - Number(token.height) / 2) / snapTo);
     return { col, row };
+  }
+
+  /**
+   * The cells a token's footprint covers. `width`/`height` are pixel footprints,
+   * so a Large (2×2) token spans `round(width/snapTo)` columns and rows; `cellOf`
+   * still returns the top-left cell.
+   */
+  function cellsOf(token, snapTo) {
+    const left = Number(token.left) || 0;
+    const top = Number(token.top) || 0;
+    const w = Number(token.width) || 0;
+    const h = Number(token.height) || 0;
+    const col0 = Math.floor((left - w / 2) / snapTo);
+    const row0 = Math.floor((top - h / 2) / snapTo);
+    const colSpan = Math.max(1, Math.round(w / snapTo));
+    const rowSpan = Math.max(1, Math.round(h / snapTo));
+    const cells = [];
+    for (let r = row0; r < row0 + rowSpan; r++) {
+      for (let c = col0; c < col0 + colSpan; c++) {
+        cells.push({ col: c, row: r });
+      }
+    }
+    return cells;
   }
 
   /**
@@ -134,6 +158,28 @@
   let grid = null; // { pageId, snapTo, scaleNumber, scaleUnits, diagonaltype, tokens: Map }
   let section = null;
   let content = null;
+
+  // --- Debounced render ---------------------------------------------------
+  //
+  // The bridge coalesces to one message per token per tick, so a single drag
+  // produces a stream of deltas. Rebuilding the whole list on each one would
+  // tear the DOM out from under a screen reader mid-list; render once per
+  // 150 ms burst instead, the same settle window map-grid.js uses for its
+  // change announcements.
+
+  const SETTLE_MS = 150;
+  let renderTimer = null;
+
+  function scheduleRender() {
+    if (renderTimer === null) {
+      renderTimer = window.setTimeout(flushRender, SETTLE_MS);
+    }
+  }
+
+  function flushRender() {
+    renderTimer = null;
+    render();
+  }
 
   function myTokens() {
     if (!grid) return [];
@@ -203,18 +249,41 @@
     const entries = [];
     for (const token of grid.tokens.values()) {
       if (token.id === ref.id || token.layer !== "objects") continue;
-      const cell = cellOf(token, grid.snapTo);
-      const dc = cell.col - refCell.col;
-      const dr = cell.row - refCell.row;
+      const cells = cellsOf(token, grid.snapTo);
       const name = nameOf(token);
 
-      if (dc === 0 && dr === 0) {
+      // Distance is measured to the token's *nearest* covered cell — how far to
+      // reach it — while the o'clock bearing points at the centre of its
+      // footprint, so the direction still points at the creature.
+      let squares = Infinity;
+      let minCol = Infinity;
+      let maxCol = -Infinity;
+      let minRow = Infinity;
+      let maxRow = -Infinity;
+      for (const cell of cells) {
+        const s = squaresBetween(
+          cell.col - refCell.col,
+          cell.row - refCell.row,
+          grid.diagonaltype
+        );
+        if (s < squares) squares = s;
+        if (cell.col < minCol) minCol = cell.col;
+        if (cell.col > maxCol) maxCol = cell.col;
+        if (cell.row < minRow) minRow = cell.row;
+        if (cell.row > maxRow) maxRow = cell.row;
+      }
+
+      if (squares === 0) {
         entries.push({ name, feet: 0, hour: 0, text: name + ": same square." });
         continue;
       }
-      const squares = squaresBetween(dc, dr, grid.diagonaltype);
       const feet = Math.round(squares * grid.scaleNumber);
-      const hour = clockHour(bearingDeg(dc, dr), facingDegCW(ref.rotation));
+      const centreCol = (minCol + maxCol) / 2;
+      const centreRow = (minRow + maxRow) / 2;
+      const hour = clockHour(
+        bearingDeg(centreCol - refCell.col, centreRow - refCell.row),
+        facingDegCW(ref.rotation)
+      );
       entries.push({
         name,
         feet,
@@ -246,6 +315,10 @@
       debug("relpos", "init missing geometry, ignored");
       return;
     }
+    if (renderTimer !== null) {
+      window.clearTimeout(renderTimer);
+      renderTimer = null;
+    }
     grid = {
       pageId: init.pageId,
       snapTo: init.snapTo,
@@ -263,13 +336,13 @@
   function handleDelta(delta) {
     if (!grid || !delta || !delta.token || delta.pageId !== grid.pageId) return;
     grid.tokens.set(delta.token.id, delta.token);
-    render();
+    scheduleRender();
   }
 
   function handleRemoved(msg) {
     if (!grid || !msg || msg.pageId !== grid.pageId) return;
     grid.tokens.delete(msg.id);
-    render();
+    scheduleRender();
   }
 
   window.addEventListener("message", (event) => {
