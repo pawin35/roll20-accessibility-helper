@@ -50,9 +50,19 @@
 (function () {
   "use strict";
 
-  const { CLASS_PREFIX, debug, announce, enhance, markOnce, hiddenSpan, rollFormat } =
-    window.Roll20A11y;
-  const { normalize, textOf, describeTemplate, judge, critKindFromTemplate } = rollFormat;
+  const {
+    CLASS_PREFIX,
+    debug,
+    announce,
+    enhance,
+    markOnce,
+    hiddenSpan,
+    normalize,
+    primeAudio,
+    isReadKey,
+    rollFormat,
+  } = window.Roll20A11y;
+  const { textOf, describeTemplate, judge, critKindFromTemplate } = rollFormat;
 
   const TOP_ORIGIN = "https://app.roll20.net";
   const SHEET_ORIGIN = "https://advanced-sheets.production.roll20preflight.net";
@@ -107,27 +117,8 @@
   // It plays in whichever frame the key was pressed, never across the frame
   // boundary, so there is always a real user gesture behind it.
 
-  let audio = null;
-
-  /**
-   * Get the audio context going while the keypress is still a fresh user
-   * gesture. A context created without one starts suspended, and the reply that
-   * triggers the tone arrives as a postMessage, which is not a gesture itself.
-   * Once resumed it stays resumed, so this only matters for the first tone.
-   */
-  function primeAudio() {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      if (!audio) audio = new Ctx();
-      if (audio.state === "suspended") audio.resume();
-    } catch (e) {
-      /* no audio available; the spoken text still says which end it is */
-    }
-  }
-
   function beep(edge) {
-    primeAudio();
+    const audio = primeAudio();
     if (!audio) return;
     try {
       const osc = audio.createOscillator();
@@ -930,15 +921,6 @@
     },
     true
   );
-
-  // alt+O. Handled apart from `chatKey` because it is the same key, and means
-  // the same thing, as the character sheet's "read the last result again" —
-  // and because the sheet frame forwards it under its own name.
-  function isReadKey(event) {
-    if (!event.altKey || event.ctrlKey || event.metaKey) return false;
-    if (event.code === "KeyO") return true;
-    return (event.key || "").toLowerCase() === "o";
-  }
 
   document.addEventListener(
     "keydown",

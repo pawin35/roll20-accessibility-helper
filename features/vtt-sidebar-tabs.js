@@ -28,7 +28,7 @@
 (function () {
   "use strict";
 
-  const { debug, announce } = window.Roll20A11y;
+  const { debug, announce, normalize } = window.Roll20A11y;
 
   const TOP_ORIGIN = "https://app.roll20.net";
   const SHEET_ORIGIN = "https://advanced-sheets.production.roll20preflight.net";
@@ -89,10 +89,6 @@
   // it writes, so a pass with nothing to do mutates nothing at all: a redundant
   // attribute write is something a screen reader can react to.
   const SWEEP_MS = 500;
-
-  function normalize(value) {
-    return String(value || "").replace(/\s+/g, " ").trim();
-  }
 
   function tabs() {
     const nav = document.querySelector(SEL_NAV);

@@ -56,7 +56,7 @@
 (function () {
   "use strict";
 
-  const { CLASS_PREFIX, debug, enhance, markOnce, rollFormat } = window.Roll20A11y;
+  const { CLASS_PREFIX, debug, enhance, markOnce, isReadKey, rollFormat } = window.Roll20A11y;
   // The `rolltemplate` itself is read by lib/roll-format.js, because the VTT's
   // text chat renders the identical template inside a different wrapper. Only
   // the wrapper and the dice tray are this file's business.
@@ -64,13 +64,6 @@
 
   const TOP_ORIGIN = "https://app.roll20.net";
   const SHEET_ORIGIN = "https://advanced-sheets.production.roll20preflight.net";
-
-  /** alt+O, checked by physical key so a non-US layout still works. */
-  function isReadKey(event) {
-    if (!event.altKey || event.ctrlKey || event.metaKey) return false;
-    if (event.code === "KeyO") return true;
-    return (event.key || "").toLowerCase() === "o";
-  }
 
   /**
    * Sounds, addressed by key rather than by path.

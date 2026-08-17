@@ -39,7 +39,7 @@
 (function () {
   "use strict";
 
-  const { debug, announce } = window.Roll20A11y;
+  const { debug, announce, normalize } = window.Roll20A11y;
 
   // The value Roll20 uses, keyed by physical key so a non-US layout works.
   const KEYS = {
@@ -151,10 +151,6 @@
   const SEL_OPTION = ".poly-radio__button";
   const SEL_OPTION_LABEL = ".poly-radio__button-label";
   const ATTR_SELECTED = "data-selectedvalue";
-
-  function normalize(value) {
-    return String(value || "").replace(/\s+/g, " ").trim();
-  }
 
   /**
    * Activate `option` and leave focus where the user had it.

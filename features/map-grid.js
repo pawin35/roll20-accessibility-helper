@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  const { CLASS_PREFIX, announce, debug, gridGeom } = window.Roll20A11y;
+  const { CLASS_PREFIX, announce, debug, gridGeom, primeAudio } = window.Roll20A11y;
   const { DIRECTIONS, cellOf, cellsOf, cellRef, nameOf, myTokens } = gridGeom;
 
   const SELF_ORIGIN = "https://app.roll20.net";
@@ -297,23 +297,8 @@
   // `tone()` skips silently until that has happened. The announcement still
   // carries the change either way.
 
-  let audio = null;
-
-  function primeAudio() {
-    try {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      if (!audio) audio = new Ctx();
-      if (audio.state === "suspended") audio.resume();
-    } catch (e) {
-      /* no audio available; the announcement still says what changed */
-    }
-  }
-
   function tone() {
-    // Not primed by a gesture yet: do not construct an AudioContext here, or
-    // Chrome logs an autoplay warning for every remote change before the first
-    // interaction.
+    const audio = primeAudio();
     if (!audio || audio.state !== "running") return;
     try {
       const osc = audio.createOscillator();
