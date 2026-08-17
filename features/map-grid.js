@@ -23,7 +23,8 @@
 (function () {
   "use strict";
 
-  const { CLASS_PREFIX, announce, debug } = window.Roll20A11y;
+  const { CLASS_PREFIX, announce, debug, gridGeom } = window.Roll20A11y;
+  const { DIRECTIONS, cellOf, cellsOf, cellRef, nameOf, myTokens } = gridGeom;
 
   const SELF_ORIGIN = "https://app.roll20.net";
   const SHEET_ORIGIN = "https://advanced-sheets.production.roll20preflight.net";
@@ -76,68 +77,12 @@
   // south. Rounded to the nearest of 8 compass points so 45° reads
   // "north-west" rather than a raw number.
 
-  const DIRECTIONS = [
-    "north", "north-west", "west", "south-west",
-    "south", "south-east", "east", "north-east",
-  ];
-
   function facing(rotation) {
     const deg = (((Number(rotation) || 0) % 360) + 360) % 360;
     return DIRECTIONS[Math.round(deg / 45) % 8];
   }
 
-  // --- Grid geometry -----------------------------------------------------
-
-  /** Column 0 → "A", 25 → "Z", 26 → "AA", … */
-  function colLabel(col) {
-    let s = "";
-    let n = col + 1;
-    while (n > 0) {
-      n -= 1;
-      s = String.fromCharCode(65 + (n % 26)) + s;
-      n = Math.floor(n / 26);
-    }
-    return s;
-  }
-
-  function cellOf(token, snapTo) {
-    const col = Math.floor((Number(token.left) - Number(token.width) / 2) / snapTo);
-    const row = Math.floor((Number(token.top) - Number(token.height) / 2) / snapTo);
-    return { col, row };
-  }
-
-  /**
-   * The cells a token's footprint covers. `width`/`height` are pixel footprints,
-   * so a Large (2×2) token spans `round(width/snapTo)` columns and rows; `cellOf`
-   * still returns the top-left cell (used for alt+M and grid-order sorting).
-   */
-  function cellsOf(token, snapTo) {
-    const left = Number(token.left) || 0;
-    const top = Number(token.top) || 0;
-    const w = Number(token.width) || 0;
-    const h = Number(token.height) || 0;
-    const col0 = Math.floor((left - w / 2) / snapTo);
-    const row0 = Math.floor((top - h / 2) / snapTo);
-    const colSpan = Math.max(1, Math.round(w / snapTo));
-    const rowSpan = Math.max(1, Math.round(h / snapTo));
-    const cells = [];
-    for (let r = row0; r < row0 + rowSpan; r++) {
-      for (let c = col0; c < col0 + colSpan; c++) {
-        cells.push({ col: c, row: r });
-      }
-    }
-    return cells;
-  }
-
-  function cellRef(col, row) {
-    return colLabel(col) + (row + 1);
-  }
-
   // --- Cell text ---------------------------------------------------------
-
-  function nameOf(token) {
-    return token.name || "Unknown creature";
-  }
 
   function hpText(token) {
     if (!token.playerControlled || token.hp == null) return "";
@@ -508,20 +453,6 @@
 
   // --- Jump to my token --------------------------------------------------
 
-  function myTokens() {
-    if (!grid) return [];
-    const found = [];
-    for (const token of grid.tokens.values()) {
-      if (token.mine) found.push(token);
-    }
-    found.sort((a, b) => {
-      const ca = cellOf(a, grid.snapTo);
-      const cb = cellOf(b, grid.snapTo);
-      return ca.row - cb.row || ca.col - cb.col;
-    });
-    return found;
-  }
-
   /**
    * Move focus to a cell, keeping a roving tabindex: exactly one cell holds
    * `tabindex="0"` at a time so Tab can re-enter the grid where the user left
@@ -568,7 +499,7 @@
       say("The map grid is not ready.");
       return;
     }
-    const mine = myTokens();
+    const mine = myTokens(grid);
     if (!mine.length) {
       say("You have no token on this map.");
       return;

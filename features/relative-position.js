@@ -27,7 +27,8 @@
 (function () {
   "use strict";
 
-  const { CLASS_PREFIX, debug } = window.Roll20A11y;
+  const { CLASS_PREFIX, debug, gridGeom } = window.Roll20A11y;
+  const { DIRECTIONS, cellOf, cellsOf, nameOf, myTokens } = gridGeom;
 
   const SELF_ORIGIN = "https://app.roll20.net";
 
@@ -42,11 +43,6 @@
   // the same compass point the grid cell would. The o'clock bearing is taken
   // against this *rounded* facing, not the raw rotation, so it cannot disagree
   // with the direction the reference line announces.
-
-  const DIRECTIONS = [
-    "north", "north-west", "west", "south-west",
-    "south", "south-east", "east", "north-east",
-  ];
 
   function normDeg(deg) {
     return (((Number(deg) || 0) % 360) + 360) % 360;
@@ -64,37 +60,6 @@
   /** The rounded facing expressed clockwise from north (0=N, 90=E, …). */
   function facingDegCW(rotation) {
     return (360 - compassIndex(rotation) * 45) % 360;
-  }
-
-  // --- Grid geometry -----------------------------------------------------
-
-  function cellOf(token, snapTo) {
-    const col = Math.floor((Number(token.left) - Number(token.width) / 2) / snapTo);
-    const row = Math.floor((Number(token.top) - Number(token.height) / 2) / snapTo);
-    return { col, row };
-  }
-
-  /**
-   * The cells a token's footprint covers. `width`/`height` are pixel footprints,
-   * so a Large (2×2) token spans `round(width/snapTo)` columns and rows; `cellOf`
-   * still returns the top-left cell.
-   */
-  function cellsOf(token, snapTo) {
-    const left = Number(token.left) || 0;
-    const top = Number(token.top) || 0;
-    const w = Number(token.width) || 0;
-    const h = Number(token.height) || 0;
-    const col0 = Math.floor((left - w / 2) / snapTo);
-    const row0 = Math.floor((top - h / 2) / snapTo);
-    const colSpan = Math.max(1, Math.round(w / snapTo));
-    const rowSpan = Math.max(1, Math.round(h / snapTo));
-    const cells = [];
-    for (let r = row0; r < row0 + rowSpan; r++) {
-      for (let c = col0; c < col0 + colSpan; c++) {
-        cells.push({ col: c, row: r });
-      }
-    }
-    return cells;
   }
 
   /**
@@ -149,10 +114,6 @@
     }
   }
 
-  function nameOf(token) {
-    return token.name || "Unknown creature";
-  }
-
   // --- State -------------------------------------------------------------
 
   let grid = null; // { pageId, snapTo, scaleNumber, scaleUnits, diagonaltype, tokens: Map }
@@ -179,20 +140,6 @@
   function flushRender() {
     renderTimer = null;
     render();
-  }
-
-  function myTokens() {
-    if (!grid) return [];
-    const found = [];
-    for (const token of grid.tokens.values()) {
-      if (token.mine) found.push(token);
-    }
-    found.sort((a, b) => {
-      const ca = cellOf(a, grid.snapTo);
-      const cb = cellOf(b, grid.snapTo);
-      return ca.row - cb.row || ca.col - cb.col;
-    });
-    return found;
   }
 
   // --- The section -------------------------------------------------------
@@ -233,7 +180,7 @@
     content.textContent = "";
 
     if (!grid) return;
-    const mine = myTokens();
+    const mine = myTokens(grid);
     if (!mine.length) {
       content.appendChild(paragraph("You have no token on this map."));
       return;

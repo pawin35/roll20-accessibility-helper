@@ -21,6 +21,7 @@ manifest.json                            MV3 config; content_scripts.js order ma
 styles.css                               all classes namespaced `r20a11y-`
 lib/core.js                              shared helpers, MUST load first
 lib/roll-format.js                       reads a dnd-2024 rolltemplate; after core
+lib/grid-geometry.js                     shared grid math (cellOf, cellsOf, …); after core
 features/<one-file-per-feature>.js       features
 page/<shim>.js                           runs in the PAGE's world, not ours
 ```
@@ -69,8 +70,8 @@ Several files are listed in **more than one** entry and branch on
   back.
 
 All content scripts share one isolated-world global scope. `lib/core.js`
-publishes `window.Roll20A11y`; feature files consume it and must be listed
-**after** it in `manifest.json`.
+publishes `window.Roll20A11y`; `lib/grid-geometry.js` adds `gridGeom` to it;
+feature files consume both and must be listed **after** them in `manifest.json`.
 
 ## Testing — you must reload AND refresh
 

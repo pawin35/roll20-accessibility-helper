@@ -31,6 +31,7 @@
       "js": [
         "lib/core.js",
         "lib/roll-format.js",
+        "lib/grid-geometry.js",
         "features/roll-mode-keys.js",
         "features/vtt-sidebar-tabs.js",
         "features/vtt-chat.js",
