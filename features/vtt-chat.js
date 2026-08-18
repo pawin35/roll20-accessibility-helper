@@ -61,6 +61,7 @@
     primeAudio,
     isReadKey,
     markReady,
+    NO_FOCUS_ATTR,
     rollFormat,
   } = window.Roll20A11y;
   const { textOf, describeTemplate, judge, critKindFromTemplate } = rollFormat;
@@ -155,10 +156,13 @@
   // the posts simply go nowhere, so there is no page check to make.
 
   if (window.top !== window) {
-    // Where focus was when the key was pressed. Only alt+shift+C needs it: the
-    // top frame has to focus the chat box to send, and pulling focus back up
-    // there only restores it as far as the <iframe> element. This frame puts it
-    // back on the actual control inside.
+    // Where focus was when the key was pressed. The prompt keys (alt+shift+C,
+    // alt+shift+R) need it: the prompt is raised in the top frame and grabs
+    // focus away, and pulling it back up there only gets as far as the
+    // <iframe> element. This frame puts it back on the actual control inside.
+    // The die and send keys no longer move focus at all — the chat box's own
+    // focus is suppressed by page/suppress-focus.js — so this is a no-op for
+    // them.
     let returnTo = null;
 
     function restore() {
@@ -186,8 +190,9 @@
         try {
           const die = dieOf(kind);
           if (die) {
-            // Sending focuses the chat box up there, so this frame has to put
-            // focus back afterwards, exactly as for alt+shift+C.
+            // Sending no longer moves focus (the chat box's own focus is
+            // suppressed), but record it anyway so restore() can stay the one
+            // shared path for every reply.
             returnTo = document.activeElement;
             window.parent.postMessage({ r20a11yChatRoll: die }, TOP_ORIGIN);
           } else if (kind === "send") {
@@ -830,10 +835,11 @@
    * `window.prompt` is raised here even when the key was pressed in the sheet
    * frame, because Chrome blocks it inside a cross-origin iframe.
    *
-   * Roll20 focuses the chat box as part of sending, so focus is captured and
-   * put back — now, on the next tick, and once more at 60 ms, because the move
-   * may happen synchronously inside the click or on a later tick. The same
-   * dance as `clickWithoutStealingFocus` in features/roll-mode-keys.js.
+   * Roll20 focuses the chat box as part of sending. That move is suppressed at
+   * the source rather than restored afterwards: the input is marked
+   * `data-r20a11y-no-focus` around the send button's click, and
+   * `page/suppress-focus.js` makes that focus a no-op. The marker is cleared in
+   * the same callback that confirms the send took.
    *
    * Whatever `#speakingas` is set to is used as it stands; this never changes
    * who you are speaking as.
@@ -861,7 +867,7 @@
    * `say` is still called with "" in the quiet case, because the sheet frame
    * uses that reply as its cue to take focus back.
    */
-  function sendText(text, say, before, success) {
+  function sendText(text, say, success) {
     const input = document.querySelector(SEL_INPUT);
     const button = document.querySelector(SEL_SEND);
     if (!input || !button) {
@@ -870,17 +876,16 @@
       return;
     }
 
-    const restore = restorer(before);
-
     setValue(input, text);
+    // Roll20 focuses the chat box as part of sending; suppress that so the
+    // user's focus does not leave and come back (and get re-announced).
+    input.setAttribute(NO_FOCUS_ATTR, "1");
     button.click();
-    restore();
-    window.setTimeout(restore, 0);
-    window.setTimeout(restore, 60);
 
     // Read the result back rather than asserting it: Roll20 clears the box on a
     // successful send, so a box that still has the text in it did not send.
     window.setTimeout(() => {
+      input.removeAttribute(NO_FOCUS_ATTR);
       if (normalize(input.value)) {
         say("Could not send.");
         debug("vttchat", "chat box still holds the text after sending");
@@ -892,8 +897,8 @@
 
   /** alt+1 … alt+7. The roll sound comes free: `sendText` clicks the send
    *  button, and the capture-phase listener that watches for `/r` sees it. */
-  function sendRoll(die, say, before) {
-    sendText("/r " + die, say, before, "");
+  function sendRoll(die, say) {
+    sendText("/r " + die, say, "");
     debug("vttchat", "rolled " + die + " from a shortcut");
   }
 
@@ -916,7 +921,10 @@
       return;
     }
 
-    sendText(text, say, before, "Sent.");
+    // The prompt itself grabbed focus; put it back before the send. The send
+    // box's own focus is then suppressed by the marker, so it never moves again.
+    restorer(before)();
+    sendText(text, say, "Sent.");
   }
 
   /**
@@ -965,7 +973,10 @@
       return;
     }
 
-    sendRoll(formula, say, before);
+    // As in promptAndSend: the prompt grabbed focus, so restore it before the
+    // send; the send box's own focus is suppressed by the marker.
+    restorer(before)();
+    sendRoll(formula, say);
   }
 
   // --- Keys and messages ------------------------------------------------
@@ -977,7 +988,7 @@
       if (!kind) return;
       event.preventDefault();
       const die = dieOf(kind);
-      if (die) sendRoll(die, speakHere, document.activeElement);
+      if (die) sendRoll(die, speakHere);
       else if (kind === "send") promptAndSend(speakHere);
       else if (kind === "rollprompt") promptRoll(speakHere);
       else move(kind, speakHere);
@@ -1019,7 +1030,7 @@
       const die = data.r20a11yChatRoll;
       let known = false;
       for (const code in DICE) if (DICE[code] === die) known = true;
-      if (known) sendRoll(die, reply, document.activeElement);
+      if (known) sendRoll(die, reply);
       return;
     }
     if (data.r20a11yChatPrompt) {
@@ -1039,12 +1050,14 @@
     if (data.r20a11yReannounce) move("reread", reply);
   });
 
-  // Shared with features/roll-shortcuts.js: send arbitrary text to the chat box
-  // and leave focus on `before`. `success` may be "" for a silent send (the
-  // result arrives in the log and is announced there). Only defined here, in
-  // the VTT top frame, which is the only place a chat send can happen.
+  // Shared with features/roll-shortcuts.js: send arbitrary text to the chat box.
+  // `success` may be "" for a silent send (the result arrives in the log and is
+  // announced there). The second argument is accepted for the caller's benefit
+  // and ignored — focus no longer moves on send, so there is nothing to restore
+  // to. Only defined here, in the VTT top frame, which is the only place a chat
+  // send can happen.
   window.Roll20A11y.sendChatText = (text, before, success) => {
-    sendText(text, speakHere, before, success || "");
+    sendText(text, speakHere, success || "");
   };
 
   sweep();

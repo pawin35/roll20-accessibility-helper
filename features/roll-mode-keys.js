@@ -10,9 +10,12 @@
  * you want, and then finding your way back — for a setting you change between
  * one roll and the next. The shortcuts set it from wherever you are.
  *
- * Focus is never moved. `click()` does not focus its target, so the radio is
- * selected exactly as if it had been chosen, and a screen reader stays put. The
- * outcome is spoken through the frame's own live region instead.
+ * Focus is never moved. `click()` alone would move it — Headless UI focuses the
+ * clicked option as part of its roving-tabindex behaviour — so the option is
+ * marked `data-r20a11y-no-focus` around the click, and `page/suppress-focus.js`
+ * (a `world: "MAIN"` shim) makes that focus a no-op. A screen reader stays put
+ * and never re-announces where it was. The outcome is spoken through the
+ * frame's own live region instead.
  *
  * The markup, established by probe (features/diagnostics.js, since deleted):
  *
@@ -39,7 +42,7 @@
 (function () {
   "use strict";
 
-  const { debug, announce, normalize } = window.Roll20A11y;
+  const { debug, announce, normalize, NO_FOCUS_ATTR } = window.Roll20A11y;
 
   // The value Roll20 uses, keyed by physical key so a non-US layout works.
   const KEYS = {
@@ -87,10 +90,8 @@
       return null;
     }
 
-    // Where focus was when the key was pressed up here. Selecting the option
-    // down in the sheet moves focus into the frame — focusing anything inside
-    // an iframe focuses the iframe — so it has to be pulled back afterwards.
-    let returnTo = null;
+    // Selecting the option no longer moves focus into the frame — its focus is
+    // suppressed by page/suppress-focus.js — so there is nothing to restore.
 
     document.addEventListener(
       "keydown",
@@ -103,7 +104,6 @@
           announce("Could not set " + SPOKEN[value] + ".");
           return;
         }
-        returnTo = document.activeElement;
         try {
           frame.contentWindow.postMessage({ r20a11yRollMode: value }, SHEET_ORIGIN);
         } catch (e) {
@@ -114,22 +114,14 @@
     );
 
     // The sheet frame reports back what actually happened; this frame speaks it
-    // because this frame is where the user's focus is.
+    // because this frame is where the user's focus is. Focus never moved — the
+    // option's focus is suppressed by page/suppress-focus.js — so there is
+    // nothing to restore.
     window.addEventListener("message", (event) => {
       if (event.origin !== SHEET_ORIGIN) return;
       const said = event.data && event.data.r20a11yRollModeResult;
       if (typeof said !== "string") return;
 
-      if (
-        returnTo &&
-        returnTo.isConnected &&
-        returnTo !== document.body &&
-        document.activeElement !== returnTo &&
-        returnTo.focus
-      ) {
-        returnTo.focus();
-      }
-      returnTo = null;
       announce(said);
     });
 
@@ -153,41 +145,25 @@
   const ATTR_SELECTED = "data-selectedvalue";
 
   /**
-   * Activate `option` and leave focus where the user had it.
+   * Activate `option` without moving focus.
    *
    * These are Headless UI radio options, and Headless UI focuses the option as
    * part of handling a click — that is its roving-tabindex behaviour, not
    * something `click()` does on its own. The effect is that a shortcut meant to
    * change a setting in place instead dumps a screen reader on the radio group.
    *
-   * Focus is captured first and put back afterwards. The restore is attempted
-   * on this tick and twice more, because the focus may be moved synchronously
-   * inside the click or on a later tick, and it stops as soon as focus is back
-   * — so the settled case costs nothing.
-   *
-   * Removing the option's `tabindex` to make the focus a no-op was considered
-   * and rejected: Headless UI uses it for keyboard navigation within the group,
-   * and breaking that to fix this would trade one keyboard problem for another.
+   * The focus is suppressed at the source rather than fought over afterwards:
+   * the option is marked `data-r20a11y-no-focus`, and `page/suppress-focus.js`
+   * (a `world: "MAIN"` shim) makes `HTMLElement.prototype.focus` a no-op for a
+   * marked element. The isolated world cannot patch that prototype itself — it
+   * has its own copy — which is why the shim exists. The marker is removed in
+   * the same callback that confirms the value took, so the two share one
+   * timeline. The value change is unaffected: Headless UI updates the value
+   * before it focuses.
    */
-  function clickWithoutStealingFocus(option) {
-    const before = document.activeElement;
+  function activateWithoutFocus(option) {
+    option.setAttribute(NO_FOCUS_ATTR, "1");
     option.click();
-
-    const restore = () => {
-      const now = document.activeElement;
-      if (now === before) return;
-      if (before && before.isConnected && before !== document.body && before.focus) {
-        before.focus();
-      } else if (now && now.blur) {
-        // Nothing was focused to begin with, so returning to the body is
-        // returning it to where it was.
-        now.blur();
-      }
-    };
-
-    restore();
-    window.setTimeout(restore, 0);
-    window.setTimeout(restore, 60);
   }
 
   /**
@@ -248,14 +224,15 @@
       return;
     }
 
-    // Headless UI focuses the option itself as part of handling the click —
-    // `click()` alone is not enough to leave focus alone, which was the first
-    // thing tried here. Put it back where it was.
-    clickWithoutStealingFocus(option);
+    // Headless UI focuses the option itself as part of handling the click, so
+    // the option is marked before the click and the marker cleared once the
+    // result is confirmed.
+    activateWithoutFocus(option);
 
     // Read the result back rather than asserting it. Roll20 re-renders the
     // group on selection, so the group is looked up again rather than reused.
     window.setTimeout(() => {
+      option.removeAttribute(NO_FOCUS_ATTR);
       const after = findGroup();
       const now = after ? selectedValue(after) : "";
       if (now && now !== value) {

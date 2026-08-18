@@ -29,21 +29,23 @@ page/<shim>.js                           runs in the PAGE's world, not ours
 **`page/` is not `features/`.** Anything in there is registered with
 `"world": "MAIN"` and runs in Roll20's own JavaScript context: no `chrome.*`, no
 `window.Roll20A11y`, none of the isolated world's globals. It exists only for
-things that genuinely cannot be done from a content script — currently two
-things: suppressing Roll20's chat beep on a roll, and the battle-grid bridge
-(see below), which needs `Campaign`, a page-world-only object. Reach for it
-last.
+things that genuinely cannot be done from a content script — currently three
+things: suppressing Roll20's chat beep on a roll, the battle-grid bridge (see
+below), which needs `Campaign`, a page-world-only object, and suppressing a
+programmatic focus during synthetic activation (`suppress-focus.js` — see
+"Focus suppression" under Critical invariants). Reach for it last.
 
-Four `content_scripts` entries covering **two different Roll20 pages** plus the
-sheet iframe, which is embedded in both of them. The VTT has two entries because
-one of them runs in the page's own world:
+Five `content_scripts` entries covering **two different Roll20 pages** plus the
+sheet iframe, which is embedded in both of them. The VTT and the sheet each have
+a page-world (`world: MAIN`) entry alongside their isolated-world one:
 
 | Entry | Frame | Holds |
 |---|---|---|
 | `app.roll20.net/characters/sheet/*` | top | compendium drag-and-drop replacement, icon labels, the roll log and the "Last Result" box |
 | `app.roll20.net/editor/*` | top | the VTT: sidebar tabs, the text chat, roll-mode keys |
-| `app.roll20.net/editor/*` (`world: MAIN`) | top, page world | two shims: suppressing Roll20's chat beep on a roll, and the battle-grid bridge |
+| `app.roll20.net/editor/*` (`world: MAIN`) | top, page world | three shims: the chat-beep suppressor, the focus suppressor, and the battle-grid bridge |
 | `advanced-sheets.production.roll20preflight.net/*` (`all_frames`) | sheet | everything about the sheet itself |
+| `advanced-sheets.production.roll20preflight.net/*` (`world: MAIN`, `all_frames`) | sheet, page world | the focus suppressor (`suppress-focus.js`) |
 
 The **character sheet page** and the **VTT** are different pages with almost
 nothing in common. The character sheet has a Roll Log drawer; the VTT has
@@ -600,7 +602,8 @@ press and the result is announced when it arrives, so a "Sent." between them
 would be three notifications for one key. Failures are still spoken. That is
 why `sendText` takes its success message as an argument and why the "" reply is
 still posted to the sheet frame — that reply is the sheet's cue to take focus
-back, so skipping it would strand focus in the VTT.
+back after a prompt grabbed it; the die and send keys never move focus (see
+"Focus suppression" under Critical invariants), so for them it is a no-op.
 
 ### Roll shortcuts (`alt+shift+S` / `A` / `I` / `D` / `H`)
 
@@ -738,9 +741,16 @@ Roll20's page is Vue-based. These caused real, hard-to-diagnose bugs:
   `.poly-radio__button` unscoped.
 - **Headless UI focuses a radio option when you `click()` it.** `click()` does
   not move focus on its own, but its handler does, as part of roving tabindex.
-  Anything driving these controls on the user's behalf must capture focus first
-  and put it back. Do not strip the option's `tabindex` to prevent it — that is
-  the same attribute Headless UI uses for arrow-key navigation within the group.
+  Capturing focus and putting it back is not enough: the return re-announces
+  wherever the user was. The move is suppressed at the source instead — mark the
+  option `data-r20a11y-no-focus` (the `NO_FOCUS_ATTR` constant), and
+  `page/suppress-focus.js` makes `HTMLElement.prototype.focus` a no-op for a
+  marked element; the isolated world cannot patch that prototype (its own copy).
+  Clear the marker in the same callback that confirms the value took. Do not
+  strip the option's `tabindex` to prevent it — that is the same attribute
+  Headless UI uses for arrow-key navigation within the group. `dialog.showModal()`
+  and `window.prompt()` focus by other, native paths this shim does not and
+  should not intercept.
 - **The sheet is a cross-origin iframe**
   (`https://advanced-sheets.production.roll20preflight.net`). You cannot script
   into it, `contentDocument` is `null`, the a11y tree stops at the boundary, and

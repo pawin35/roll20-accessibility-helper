@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Roll20 Accessibility Helper",
-  "version": "1.28.0",
+  "version": "1.29.0",
   "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, spoken roll results that do not steal focus, a VTT text chat read one line per message with keyboard navigation, a screen-reader battle-grid table for the VTT, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
   "permissions": [
     "storage"
@@ -52,7 +52,8 @@
         "https://app.roll20.net/editor/*"
       ],
       "js": [
-        "page/suppress-roll-beep.js"
+        "page/suppress-roll-beep.js",
+        "page/suppress-focus.js"
       ],
       "world": "MAIN",
       "run_at": "document_start"
@@ -100,6 +101,17 @@
         "styles.css"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://advanced-sheets.production.roll20preflight.net/*"
+      ],
+      "all_frames": true,
+      "js": [
+        "page/suppress-focus.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
