@@ -23,7 +23,7 @@
 (function () {
   "use strict";
 
-  const { CLASS_PREFIX, announce, debug, gridGeom, primeAudio } = window.Roll20A11y;
+  const { CLASS_PREFIX, announce, debug, gridGeom, primeAudio, markReady } = window.Roll20A11y;
   const { DIRECTIONS, cellOf, cellsOf, cellRef, nameOf, myTokens } = gridGeom;
 
   const SELF_ORIGIN = "https://app.roll20.net";
@@ -341,6 +341,11 @@
     const phrases = Array.from(pending.values());
     pending.clear();
     if (!phrases.length) return;
+    // The token-change notification is a toggle (alt+shift+-, default off). The
+    // grid's cells have already been rewritten, so browsing and alt+M still see
+    // the new state; only the tone and the spoken announcement are gated.
+    const notifications = window.Roll20A11y.notifications;
+    if (notifications && !notifications.isTokenChangesOn()) return;
     tone();
     announce(phrases.join(" "));
   }
@@ -353,6 +358,7 @@
       return;
     }
     built = true;
+    markReady("grid");
     const pageChanged = !grid || grid.pageId !== init.pageId;
     grid = {
       pageId: init.pageId,

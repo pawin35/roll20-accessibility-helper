@@ -93,6 +93,7 @@ result is announced when it arrives.
 | `alt+shift+I` | Roll initiative |
 | `alt+shift+D` | Roll a death save |
 | `alt+shift+H` | Whisper a readout of your HP and AC |
+| `alt+shift+R` | Type a dice formula and roll it (`/r`) |
 
 Skill and ability open a small dialog listing the options (18 skills, or the 12
 ability checks and saves); the arrow keys move through them, Enter or Space
@@ -101,6 +102,12 @@ rolls, Escape closes without rolling. Each sends Roll20's macro form
 `alt+shift+S` → `%{Brother Lorian|perception}` and `alt+shift+D` →
 `%{Brother Lorian|death_save}`. `alt+shift+H` whispers the character's current
 HP, maximum, temp HP and AC back to you.
+
+`alt+shift+R` opens a box for a dice formula and rolls it with `/r`. A formula
+is one or more terms joined by `+` or `-`, where a term is `XdY`, `dY` (a
+shorthand for `1dY`), or a plain number — so `2d6+3`, `d20-1`, `3d8` and `5` are
+all valid, and `d` and `D` are interchangeable. Anything else is spoken as
+invalid and not sent.
 
 ### Chat — game session only
 
@@ -144,6 +151,30 @@ Jump to where your character stands, then walk the grid from there with the
 several characters, it focuses the first and tells you how many are on the map;
 if you have none, it says so. Pressing `alt+M` again re-reads the cell you are
 standing on.
+
+### Notifications — game session only
+
+| Key | Does |
+| --- | --- |
+| `alt+shift+-` | Turn token movement/change announcements on or off (**off** by default) |
+| `alt+shift+=` | Turn the readout of others' chat and rolls on or off (**on** by default) |
+
+`alt+shift+-` controls the battle grid's spoken changes ("moved to F4", "took
+damage: …", "turned to face west") and their tone. The grid itself stays up to
+date either way — only the announcement is muted. `alt+shift+=` silences chat
+messages and roll results that come from **other** players, sounds included;
+your own messages and rolls are always read. Both choices persist across
+reloads.
+
+### Ready signal
+
+Once a game has finished loading — the chat is live, the battle grid is built,
+and the "speaking as" selector is populated — the extension plays a short rising
+chime and says **"Table ready."**. That is your cue that the shortcuts are safe
+to press, so you are not left guessing whether the page is ready yet.
+
+On load the "As:" selector is also switched to your own character, so chat you
+send goes out in-character instead of under your account name.
 
 ---
 

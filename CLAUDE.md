@@ -557,6 +557,9 @@ always, in the sheet. Matched on `event.code`, so a non-US layout still works.
 | `alt+shift+I` | Roll initiative directly | VTT |
 | `alt+shift+D` | Roll a death save directly | VTT |
 | `alt+shift+H` | Whisper a readout of HP and AC | VTT |
+| `alt+shift+R` | Prompt for a dice formula and roll it with `/r` | VTT |
+| `alt+shift+-` | Toggle token movement/change announcements (default off) | VTT |
+| `alt+shift+=` | Toggle the readout of others' chat and rolls (default on) | VTT |
 | `alt+M` | Focus the grid cell holding the current player's token | VTT |
 
 `alt+S` selects Roll20's control labelled **"Automatic"** but is spoken as
@@ -615,6 +618,16 @@ death save, and state have no dropdown and send straight away:
 The character is the current player's first controlled character, by name, read
 from the VTT's "Speak As" dropdown (`#speakingas`) — the options Roll20 already
 keeps sorted, so the first `character|…` option is the one to roll as.
+
+`features/speaking-as.js` (VTT top frame) sets `#speakingas` to that same first
+character on load, so chat is sent in-character instead of under the account
+name. It is a plain native `<select>` bound with a jQuery `change` handler, so
+the set is `sel.value = …` plus a `dispatchEvent(new Event("change",
+{bubbles:true}))`. The options arrive in two stages — the account option first,
+then the controlled characters — so the sweep keeps polling for the
+`character|…` option rather than settling for the account name. It also calls
+`markReady("speaking")` once the dropdown holds any option: readiness ("Table
+ready.") now requires chat + grid + speaking-as.
 
 The modal is a native `<dialog>.showModal()` (so aria-modal, inert background,
 and focus restore are the platform's), with the options as an ARIA listbox — not

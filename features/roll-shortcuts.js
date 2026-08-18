@@ -345,27 +345,31 @@
 
   // --- Direct sends (initiative, death save, state) --------------------
 
+  // The character name is substituted as the bare token `NAME`. A `{name}`
+  // placeholder does not work here: the templates use Roll20's own braces, and
+  // `%{name|initiative}` / `@{name|hp}` close the brace *after* the attribute,
+  // so a regex for a literal `{name}` never matches them.
   function sendDirect(text) {
     const name = currentCharacterName();
     if (!name) {
       announce("You have no character to roll as.");
       return;
     }
-    sendChat(text.replace(/\{name\}/g, name), document.activeElement, "");
+    sendChat(text.replace(/NAME/g, name), document.activeElement, "");
   }
 
   function sendInitiative() {
-    sendDirect("%{name|initiative}");
+    sendDirect("%{NAME|initiative}");
   }
 
   function sendDeathSave() {
-    sendDirect("%{name|death_save}");
+    sendDirect("%{NAME|death_save}");
   }
 
   function sendState() {
     sendDirect(
-      '/w "{name}" HP @{name|hp} out of @{name|hp|max}, ' +
-      'with @{name|hp_temp} temp HP, AC is at @{name|ac}'
+      '/w "NAME" HP @{NAME|hp} out of @{NAME|hp|max}, ' +
+      'with @{NAME|hp_temp} temp HP, AC is at @{NAME|ac}'
     );
   }
 

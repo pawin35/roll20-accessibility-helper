@@ -60,6 +60,7 @@
     normalize,
     primeAudio,
     isReadKey,
+    markReady,
     rollFormat,
   } = window.Roll20A11y;
   const { textOf, describeTemplate, judge, critKindFromTemplate } = rollFormat;
@@ -80,6 +81,7 @@
     if (code === "BracketLeft") return event.shiftKey ? "first" : "prev";
     if (code === "BracketRight") return event.shiftKey ? "last" : "next";
     if (code === "KeyC" && event.shiftKey) return "send";
+    if (code === "KeyR" && event.shiftKey) return "rollprompt";
     // The dice keys are the *unshifted* digits. alt+shift+<n> is already the
     // sidebar tab shortcut in features/vtt-sidebar-tabs.js, which is why that
     // one insists on shift and this one insists on its absence — between them
@@ -194,6 +196,9 @@
             // `prompt()` inside a cross-origin iframe outright, and a blocked
             // one just returns null with nothing shown.
             window.parent.postMessage({ r20a11yChatPrompt: true }, TOP_ORIGIN);
+          } else if (kind === "rollprompt") {
+            returnTo = document.activeElement;
+            window.parent.postMessage({ r20a11yChatRollPrompt: true }, TOP_ORIGIN);
           } else {
             window.parent.postMessage({ r20a11yChatNav: kind }, TOP_ORIGIN);
           }
@@ -626,11 +631,18 @@
       debug("vttchat", "skipped a bulk arrival of " + items.length + " messages");
       return;
     }
+    // The "others readout" toggle silences messages that are not mine — speech
+    // and sounds both — while your own messages and rolls still go through.
     // Sounds are played here rather than as each message is processed so that
     // this guard covers them too. Playing a fanfare for a burst we then decline
     // to read was the shape of the original bug.
-    for (const item of items) requestSound(item.sound);
-    announce(items.map((item) => item.line).join(" "));
+    const notifications = window.Roll20A11y.notifications;
+    const audible = items.filter(
+      (item) => item.mine || !notifications || notifications.isOthersReadoutOn()
+    );
+    if (!audible.length) return;
+    for (const item of audible) requestSound(item.sound);
+    announce(audible.map((item) => item.line).join(" "));
   }
 
   function process(msg, speak) {
@@ -661,7 +673,7 @@
     //
     // The cursor sits past the end by default, and stays there — a new message
     // does not disturb someone who has walked back into the history.
-    pending.push({ line: line, sound: soundFor(msg) });
+    pending.push({ line: line, sound: soundFor(msg), mine: msg.classList.contains("you") });
     if (flushTimer === null) flushTimer = window.setTimeout(flush, SETTLE_MS);
   }
 
@@ -675,6 +687,7 @@
       primeTimer = null;
     }
     debug("vttchat", "now announcing new messages (" + why + ")");
+    markReady("chat");
   }
 
   /** Another message while priming: the backlog is still coming. Wait longer. */
@@ -906,6 +919,55 @@
     sendText(text, say, before, "Sent.");
   }
 
+  /**
+   * Parse a dice formula into the string to roll, or null when it is not one.
+   *
+   * A formula is one or more terms joined by `+` or `-`, where a term is
+   * `XdY`, `dY` (shorthand for `1dY`), or a bare number `X`. Both `d` and `D`
+   * are accepted. A bare `dY`/`DY` is normalised to `1dY` before it is sent.
+   */
+  function parseFormula(raw) {
+    const s = String(raw || "").replace(/\s+/g, "");
+    if (!s) return null;
+    const term = "(?:[0-9]+[dD][0-9]+|[dD][0-9]+|[0-9]+)";
+    if (!new RegExp("^" + term + "(?:[+-]" + term + ")*$").test(s)) return null;
+    return s.replace(/(^|[+-])([dD])(?=[0-9])/g, (m, sign, d) => sign + "1" + d.toLowerCase());
+  }
+
+  /**
+   * Ask for a dice formula and roll it with `/r`, leaving focus where it was.
+   *
+   * Same shape as `promptAndSend` — the prompt is raised here even when the key
+   * was pressed in the sheet frame, and focus is restored the same way. A valid
+   * formula is rolled silently (the press sound and the arriving result carry
+   * the feedback); an invalid one is spoken rather than sent.
+   */
+  function promptRoll(say) {
+    const before = document.activeElement;
+    let text = null;
+    try {
+      text = window.prompt("Roll:", "");
+    } catch (e) {
+      say("Could not open the roll box.");
+      return;
+    }
+
+    if (text === null) {
+      restorer(before)();
+      say("");
+      return;
+    }
+
+    const formula = parseFormula(text);
+    if (!formula) {
+      restorer(before)();
+      say("Invalid roll formula.");
+      return;
+    }
+
+    sendRoll(formula, say, before);
+  }
+
   // --- Keys and messages ------------------------------------------------
 
   document.addEventListener(
@@ -917,6 +979,7 @@
       const die = dieOf(kind);
       if (die) sendRoll(die, speakHere, document.activeElement);
       else if (kind === "send") promptAndSend(speakHere);
+      else if (kind === "rollprompt") promptRoll(speakHere);
       else move(kind, speakHere);
     },
     true
@@ -961,6 +1024,10 @@
     }
     if (data.r20a11yChatPrompt) {
       promptAndSend(reply);
+      return;
+    }
+    if (data.r20a11yChatRollPrompt) {
+      promptRoll(reply);
       return;
     }
     if (typeof data.r20a11yChatNav === "string" && NAV_KINDS.indexOf(data.r20a11yChatNav) >= 0) {
