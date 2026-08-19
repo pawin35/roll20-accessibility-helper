@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Roll20 Accessibility Helper",
-  "version": "1.29.0",
+  "version": "1.33.0",
   "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, spoken roll results that do not steal focus, a VTT text chat read one line per message with keyboard navigation, a screen-reader battle-grid table for the VTT, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
   "permissions": [
     "storage"
@@ -93,8 +93,13 @@
         "features/item-row-icons.js",
         "features/attack-labels.js",
         "features/attacks-table.js",
+        "features/actions-table.js",
+        "features/masteries-table.js",
+        "features/effects-table.js",
+        "features/combat-control-labels.js",
         "features/spells-table.js",
         "features/inventory-table.js",
+        "features/currency.js",
         "features/roll-shortcuts.js"
       ],
       "css": [

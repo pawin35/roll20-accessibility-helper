@@ -233,6 +233,66 @@ Facts that shaped the design, each learned the hard way:
   the drawer is genuinely open, including our own live region. Anything spoken
   has to wait until it is closed or hidden.
 
+## The character sheet's panel tables
+
+The sheet's panels are CSS grids with no table semantics; the features named
+`*-table.js` apply ARIA roles in place (see "SKILLS is a five-level CSS subgrid
+chain" under Critical invariants for why never a real `<table>`). The COMBAT tab
+is the densest case, covered by four files:
+
+| Section | Row selector | List selector | Feature |
+|---|---|---|---|
+| Attacks | `.attack-item` | `.attacks__list` | `attacks-table.js` — the reference; do not change |
+| Actions / Bonus / Reactions / Free | `.action-item` | `.actions__list` | `actions-table.js` (one file, four lists) |
+| Weapon Masteries | `.weapon-mastery` | bare `.poly-list` (no class of its own) | `masteries-table.js` |
+| Effects | `.effect-item` | `.effects__list` | `effects-table.js` |
+
+Columns: actions `["Action", "Roll", "Details", "Actions"]`, masteries
+`["Name", "Property", "Source", "Actions"]`, effects `["Effect", "Mod",
+"Affects", "Actions"]`. The four action lists differ only by their section class
+(`.combat__actions`, `.combat__bonus-actions`, `.combat__reactions`,
+`.combat__free-actions`); the table's `aria-label` is read back from each
+section's own `.section-header__main-header` rather than hard-coded.
+
+Decisions worth preserving:
+
+- **An action's dice roll is its own column.** `.action-item__buttons` sits
+  *inside* the name's `.action-item__drag-name-and-resources` wrapper. Left
+  there it is a button buried in the row header: table navigation reads a cell
+  as one unit and never reaches it as a separate stop. The wrapper is made
+  presentational, the name becomes the rowheader, and the dice a `role="cell"`
+  in column 2; rows with no dice get a filler cell (the same gap-filling pattern
+  as `attacks-table.js`). The button is also named "Roll 1d4" via `labelFrom`,
+  matching how `attack-labels.js` names damage rolls.
+- **The chat button is nested in the row header of every table — including
+  Attacks.** That is the accepted pattern. It is reachable by Tab, not by table
+  navigation, and no one has asked to change it.
+- **The Weapon Masteries / Effects on-off switches stay nested in the row
+  header** (for now). They are labelled (`aria-labelledby` → the weapon/effect
+  name, so "Handaxe, switch, on/off") but were deliberately *not* promoted to
+  their own column like the dice. If table-nav reachability of the switch ever
+  matters, that is the same fix the dice got.
+
+### Money steppers (`features/currency.js`)
+
+The INVENTORY tab's purse renders five `.edit-purse__currency-edit`
+denominations — Platinum, Gold, Electrum, Silver, Copper — each a
+PolyIncrementer: name in `.poly-incrementer__label`, value in
+`.poly-incrementer__input` (`input.value`), and two unlabelled
+`.poly-incrementer__button--increment/--decrement` buttons. The buttons are named
+"Increase/Decrease *X*", and every change is spoken "*X*: *n*" through the shared
+live region. Two mechanisms, both because Vue re-renders freely:
+
+- labelling runs in a 500 ms `setTimeout` sweep (the `combobox-labels.js`
+  pattern), idempotent so a no-op pass writes nothing;
+- announcements are wired by document-level capture listeners on `click` and
+  `input`, with a `WeakMap` per-denomination dedupe and a `setTimeout(0)` before
+  reading the value, so the read lands after Vue commits the change.
+
+`features/combat-control-labels.js` labels the two remaining unlabelled controls
+in the combat sections: the Weapon Mastery chat button (`.weapon-mastery__chat-button`,
+the one chat button Roll20 ships with no glyph name) and the toggle switches.
+
 ## The VTT (`app.roll20.net/editor/*`)
 
 A campaign session. Unlike the character sheet this is **ordinary same-origin
