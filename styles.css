@@ -192,6 +192,23 @@ html:not(.r20a11y-roll-log-visible) [data-testid="test-roll-log-drawer"] {
   margin: 0 0 4px;
 }
 
+/* The hit-point slider. `hidden` on the control not in use is what keeps the
+   other one out of the tab order, and `display: none` has to win over the
+   flex/block display a rule below might otherwise give it. */
+.r20a11y-modal .r20a11y-slider {
+  display: block;
+  width: 100%;
+  margin: 8px 0 12px;
+  accent-color: var(--r20a11y-focus);
+}
+.r20a11y-modal .r20a11y-slider:focus-visible {
+  outline: 2px solid var(--r20a11y-focus);
+  outline-offset: 2px;
+}
+.r20a11y-modal [hidden] {
+  display: none;
+}
+
 .r20a11y-modal [role="listbox"] {
   max-height: 260px;
   overflow-y: auto;

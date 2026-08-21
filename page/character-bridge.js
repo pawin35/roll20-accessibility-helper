@@ -15,6 +15,7 @@
  *
  *   r20a11yCharacterRequest  → r20a11yCharacterData    the raw integrants
  *   r20a11yOpenSheet         → r20a11yOpenSheetResult  open the sheet dialog
+ *   r20a11ySetHp             → r20a11ySetHpResult      write current hit points
  *
  * All the arithmetic (ability modifiers, proficiency, save DCs, damage) lives
  * in `lib/character-rolls.js` in the isolated world, where it is a pure
@@ -221,6 +222,119 @@
     post({ r20a11yCharacterData: reply });
   }
 
+  // --- Writing hit points ------------------------------------------------
+  //
+  // Computed attributes live in the **sheet worker**, inside a cross-origin
+  // iframe, and the page talks to it over a MessageChannel. Posting
+  // `setComputed` on that port runs the sheet's own setter — the same code path
+  // as typing into the sheet — which updates `store.hitpoints.currentHP` *and*
+  // `custom_meta1` (the blob `@{Name|hp}` actually reads), persists to Firebase
+  // and broadcasts to every other relay. Writing the store directly would
+  // update one of those and silently desynchronise the rest.
+
+  var RELAY_TIMEOUT_MS = 4000;
+
+  function relayCall(relay, characterId, type, property, args, timeoutMs) {
+    return new Promise(function (resolve) {
+      var port = relay && relay.channel && relay.channel.port1;
+      if (!port) return resolve(null);
+
+      var requestId =
+        type + "_" + property + "_" + Date.now() + "_" +
+        Math.random().toString(36).slice(2, 7);
+
+      var timer = null;
+      function listener(event) {
+        if (!event.data || event.data.requestId !== requestId) return;
+        port.removeEventListener("message", listener);
+        if (timer) clearTimeout(timer);
+        resolve(event.data);
+      }
+      port.addEventListener("message", listener);
+      timer = setTimeout(function () {
+        port.removeEventListener("message", listener);
+        resolve(null);
+      }, timeoutMs || RELAY_TIMEOUT_MS);
+
+      try {
+        port.postMessage({
+          type: type,
+          characterId: characterId,
+          property: property,
+          args: args || [],
+          requestId: requestId,
+        });
+      } catch (e) {
+        port.removeEventListener("message", listener);
+        if (timer) clearTimeout(timer);
+        resolve(null);
+      }
+    });
+  }
+
+  /**
+   * A relay whose port actually answers.
+   *
+   * There are two, and which one is alive depends on page history: the headless
+   * relay is normally up from page load, the visible one can be stale. Asking
+   * for a value we already have is the cheapest way to find out, and a dead
+   * port is indistinguishable from a slow one without it.
+   */
+  function liveRelay(character) {
+    var view = character && character.view;
+    var candidates = [];
+    if (view && view.headlessRelay) candidates.push(view.headlessRelay);
+    if (view && view.relay) candidates.push(view.relay);
+
+    var id = character.id || character.get("id");
+    var index = 0;
+
+    function next() {
+      if (index >= candidates.length) return Promise.resolve(null);
+      var relay = candidates[index++];
+      return relayCall(relay, id, "getComputed", "hp", [], 2000).then(function (reply) {
+        return reply && reply.result !== undefined ? relay : next();
+      });
+    }
+    return next();
+  }
+
+  function handleSetHp(request) {
+    var reply = { requestId: request.requestId || "", ok: false };
+    var character = findCharacter(request.name);
+    if (!character) {
+      reply.error = "no-character";
+      return post({ r20a11ySetHpResult: reply });
+    }
+
+    var value = Math.max(0, Math.round(Number(request.value)));
+    if (!isFinite(value)) {
+      reply.error = "bad-value";
+      return post({ r20a11ySetHpResult: reply });
+    }
+
+    var id = character.id || character.get("id");
+    liveRelay(character).then(function (relay) {
+      if (!relay) {
+        reply.error = "no-relay";
+        return post({ r20a11ySetHpResult: reply });
+      }
+      // The setter takes a string, as the sheet's own input would give it.
+      relayCall(relay, id, "setComputed", "hp", [String(value)]).then(function (res) {
+        if (!res) {
+          reply.error = "timeout";
+          return post({ r20a11ySetHpResult: reply });
+        }
+        reply.ok = true;
+        // Trust the store over the value we asked for: the setter clamps.
+        var store = storeOf(character);
+        var current = store && store.hitpoints ? store.hitpoints.currentHP : value;
+        reply.current = typeof current === "number" ? current : value;
+        post({ r20a11ySetHpResult: reply });
+      });
+    });
+  }
+
   function handleOpenSheet(request) {
     if (sheetIsOpen()) {
       return post({ r20a11yOpenSheetResult: { state: "already" } });
@@ -242,6 +356,8 @@
       handleCharacterRequest(data.r20a11yCharacterRequest);
     } else if (data.r20a11yOpenSheet) {
       handleOpenSheet(data.r20a11yOpenSheet);
+    } else if (data.r20a11ySetHp) {
+      handleSetHp(data.r20a11ySetHp);
     }
   });
 })();

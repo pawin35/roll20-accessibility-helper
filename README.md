@@ -133,6 +133,7 @@ result is announced when it arrives.
 | `alt+shift+A` | Open the ability dropdown and roll a check or save |
 | `alt+shift+I` | Roll initiative |
 | `alt+shift+D` | Roll a death save |
+| `alt+H` | Adjust your hit points on a slider |
 | `alt+shift+H` | Speak your HP and AC |
 | `alt+shift+T` | Speak your remaining spell slots |
 | `alt+shift+R` | Type a dice formula and roll it (`/r`) |
@@ -156,6 +157,21 @@ Spell slots. Level 1: 2 of 2. Level 3: 1 of 3.
 
 Levels you have no slots at are left out. Warlock pact slots are reported
 separately, and without a total, because the sheet does not store one.
+
+`alt+H` opens a slider over your hit points, from 0 to your maximum, starting
+where you are now. The arrow keys move it a point at a time, Page Up and Page
+Down ten, Home and End jump to either end, and the value is read out as you go
+("9 of 20"). Enter applies it; Escape closes without changing anything. The
+change is written to your sheet the same way typing into the sheet would write
+it, and announced to the table:
+
+```
+Tempis: takes 3 damage, current HP is 9
+Tempis: heals 4 hit points, current HP is 12
+```
+
+Only current HP changes — temporary HP is left alone rather than being spent for
+you. `alt+shift+H` is the read-only twin and changes nothing.
 
 `alt+shift+E` opens the floating character sheet and plays a short rising beep
 once it has finished rendering, so you are not left guessing whether it is ready

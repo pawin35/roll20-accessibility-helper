@@ -629,6 +629,7 @@ always, in the sheet. Matched on `event.code`, so a non-US layout still works.
 | `alt+shift+A` | Open the ability-roll dropdown (checks and saves) | VTT |
 | `alt+shift+I` | Roll initiative directly | VTT |
 | `alt+shift+D` | Roll a death save directly | VTT |
+| `alt+H` | Adjust hit points on a slider, and tell the table | VTT |
 | `alt+shift+H` | Speak the character's HP and AC | VTT |
 | `alt+shift+T` | Speak the character's remaining spell slots | VTT |
 | `alt+W` / `alt+shift+W` | Open the attack-roll / attack-damage dropdown | VTT |
@@ -1188,6 +1189,59 @@ carries the line down to the sheet frame as `r20a11ySay`, the same way the chat
 shortcuts hand their result back. Careful with it — `choiceModal`'s `onClose`
 passes a *boolean*, so the modal path wires `onClose: () => replyDone()` rather
 than passing the function straight in, or the dropdown would announce "true".
+
+### Adjusting hit points (`alt+H`)
+
+`features/hp-shortcut.js`. The one shortcut that **writes**. It opens the shared
+modal in slider mode over 0…max, starting at the current value; Enter commits,
+and the change is announced to the table as a chat line:
+
+```
+Tempis: takes 3 damage, current HP is 9
+Tempis: heals 4 hit points, current HP is 12
+```
+
+- **A native `<input type="range">`, not a `role="slider"` div.** Arrow keys,
+  Page Up/Down, Home and End all work with no code, and the value is read on
+  every keypress — which is the reason to use a slider rather than a number box
+  at all. `aria-valuetext` is set to "9 of 20", because a bare "9" is not a
+  useful thing to hear about hit points.
+- **It is the same dialog as the roll shortcuts**, not a second one:
+  `lib/choice-modal.js` grew `openSlider()` beside `open()`, sharing `begin()`
+  for the shell and everything in `close()` — the silencer lead, the `closing`
+  guard, Escape handling, focus restore. Those took several iterations to get
+  right and must not be reimplemented. Only the control differs, and the one
+  not in use is `hidden` so it is not an extra tab stop announcing a stale
+  value. `lib/remote-modal.js` carries the choice as a `kind` on the existing
+  message, so the frame routing is also one implementation.
+- **Writing goes through the sheet worker, never straight to the store.**
+  `page/character-bridge.js` posts `{type:"setComputed", property:"hp"}` on a
+  relay's `MessageChannel` port, which runs the sheet's own setter — the same
+  path as typing into the sheet. That updates `store.hitpoints.currentHP` *and*
+  `custom_meta1` (the blob `@{Name|hp}` actually reads), bumps the update id,
+  persists to Firebase and broadcasts to the other relays. Writing the store
+  directly would update one of those and silently desynchronise the rest. ~150 ms
+  when warm, against ~5 s for the old close-and-reopen cycle.
+- **There are two relays and only one may answer.** The headless relay is
+  normally up from page load; the visible one can be stale depending on page
+  history. `liveRelay()` pings each with a `getComputed hp` it does not need,
+  because a dead port is otherwise indistinguishable from a slow one. Failing
+  that, the user is told the sheet is not ready rather than left with a silent
+  no-op.
+- **The chat line reports what the model holds, not what the slider asked for.**
+  The setter clamps at zero, so telling the table a number the sheet disagrees
+  with would be worse than saying nothing. Committing the value it already has
+  sends nothing and says "Hit points unchanged."
+- **Nothing is announced locally on success.** The line goes to chat, comes back
+  through the log, and is announced from there — the same arrangement as a roll,
+  and `claimNextAnnouncement` routes it to whichever frame the key came from.
+- Only **current** HP is adjusted. Temporary HP is left alone, so a slider on a
+  character with temp HP does not silently spend it; that is a judgement the
+  player should make.
+
+The pure parts — reading HP out of a bridge reply, choosing the slider's top,
+wording the line — are covered offline by `check-hp.js` in the scratchpad, which
+lifts the functions out of the shipped file rather than copying them.
 
 ### Opening the sheet (`alt+shift+E`)
 

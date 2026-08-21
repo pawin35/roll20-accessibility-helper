@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6xxIdiOt0W3Objf9hyUsk7CCIIbIWcaKIL8g+x/1MkfY2jnhGVf0y32zHD3gA/S5EwF0BYTsWG2FKsZK9ptNyJCahgBkTrthrOZokLoWBhouJ4rdRhirGsmUqQKe2TK9erFmUzPxdqs4FgJg1jU9yXPj4xoZ/0FW8scfsrXwaqjpeWsROaTejehlg+CR6hqGWAwElijlQmXngrJW77Z36qKx5ZQkTvk6YFvMkHIzB/VE9WYkdeTBRf+9EdSLlGDMobOqcU2jJQo5Dqzm/JY17GcedAThLs0Dlu1riZ+8LvnRZi+dOIy3DsTjkoIYYuJwlwqTVJUFeVflLFRpDOmViQIDAQAB",
   "name": "Roll20 Accessibility Helper",
-  "version": "1.47.0",
+  "version": "1.48.0",
   "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, spoken roll results that do not steal focus, a VTT text chat read one line per message with keyboard navigation, a screen-reader battle-grid table for the VTT, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
   "permissions": [
     "storage",
@@ -52,6 +52,7 @@
         "features/relative-position.js",
         "features/roll-shortcuts.js",
         "features/attack-shortcuts.js",
+        "features/hp-shortcut.js",
         "features/open-sheet.js"
       ],
       "css": [
@@ -120,6 +121,7 @@
         "features/currency.js",
         "features/roll-shortcuts.js",
         "features/attack-shortcuts.js",
+        "features/hp-shortcut.js",
         "features/open-sheet.js"
       ],
       "css": [
