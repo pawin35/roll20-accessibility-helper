@@ -16,3 +16,6 @@ Thumbs.db
 
 # opencode session logs
 session-*.md
+
+# Packages built by native/package.sh
+dist/

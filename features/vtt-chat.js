@@ -651,7 +651,7 @@
     const line = audible.map((item) => item.line).join(" ");
     // A shortcut may have claimed this line as its own result — see
     // `claimNextAnnouncement` in lib/core.js. It is then delivered there,
-    // assertively, and must not be announced here as well.
+    // there, and must not be announced here as well.
     if (!deliverClaimed(line)) announce(line);
   }
 

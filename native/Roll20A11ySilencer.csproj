@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe, not Exe: a console subsystem binary flashes a black window
+         every time Chrome launches it. Redirected stdin/stdout work either
+         way, so there is no reason to pay for the flash. No WinForms — this
+         host has no UI at all. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>roll20-a11y-silencer</AssemblyName>
+    <RootNamespace>Roll20A11ySilencer</RootNamespace>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- A framework-dependent build of a net6.0 app will not start on a machine
+         that has only .NET 8 or 9: the default roll-forward is Minor, which
+         covers 6.x and no further. Anyone who has *a* modern runtime should be
+         able to run this, so roll forward across major versions too. Costs
+         nothing for a self-contained build, which carries its own. -->
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+</Project>

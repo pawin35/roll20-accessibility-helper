@@ -14,16 +14,23 @@ replacements for mouse-only interactions such as compendium drag-and-drop.
 No build step, no dependencies, no framework. Plain content scripts loaded
 directly from this folder as an unpacked extension.
 
+The one exception is `native/`, an **optional** Windows helper that has to be
+compiled and installed separately. Nothing depends on it: without it every
+dialog still works, it just costs the screen-reader chatter it exists to cut
+off. See "Silencing the way back in".
+
 ## Layout
 
 ```
 manifest.json                            MV3 config; content_scripts.js order matters
 styles.css                               all classes namespaced `r20a11y-`
+background.js                            service worker; a relay to native/, nothing else
 lib/core.js                              shared helpers, MUST load first
 lib/roll-format.js                       reads a dnd-2024 rolltemplate; after core
 lib/grid-geometry.js                     shared grid math (cellOf, cellsOf, …); after core
 features/<one-file-per-feature>.js       features
 page/<shim>.js                           runs in the PAGE's world, not ours
+native/                                  optional NVDA silencer (C#) + vendored DLL; build separately
 ```
 
 **`page/` is not `features/`.** Anything in there is registered with
@@ -816,8 +823,7 @@ in the repo.
 ### Focus and the dialogs
 
 A dialog takes focus, and giving it back announces whatever receives it — over
-the top of the roll the dialog just fired. Two mechanisms in `lib/core.js`,
-`parkFocus()` and `deferUntilQuiet()`, and both matter.
+the top of the roll the dialog just fired.
 
 **The dialog opens in the frame that pressed the key.** `lib/remote-modal.js`:
 the top frame decides what is in the list and posts it down, the sheet frame
@@ -839,13 +845,6 @@ appears to be NVDA rebuilding its virtual buffer in the top document once the
 `aria-modal` dialog closes and the rest of the page becomes visible to it
 again.)
 
-Because the result still arrives in the **top** frame's chat log, it is
-**routed** down rather than announced there — `routeAnnouncementsTo(frame)` in
-`lib/core.js`, consumed by `vtt-chat.js`'s flush. Routed, not echoed: while a
-route is set the top frame does not announce at all, or the line would be spoken
-twice. One line clears the route, with a 5 s ceiling. The same routing covers
-`alt+shift+I` and `alt+shift+D`, which send straight to chat.
-
 **Focus goes back at once, and the speech that follows is cut off.** Closing the
 dialog hands focus to the control that opened it — and a screen reader answers
 by reading the control *plus* everything it sits inside:
@@ -854,15 +853,31 @@ by reading the control *plus* everything it sits inside:
 Ability scores  table with 7 rows and 5 columns  Roll Strength +1 saving throw  button
 ```
 
-What carries the result over that chatter is being announced **assertively** —
-`claimNextAnnouncement(frame)` marks the next chat line as the answer to what
-the user just pressed, and `vtt-chat.js`'s flush hands it to `deliverClaimed()`
-instead of announcing it. Delivered, not echoed: routed to the sheet frame when
-the key came from there, spoken here when it did not, assertive either way, and
-never both or it would be said twice. One line clears the claim, with a 5 s
-ceiling. `alt+shift+I` and `alt+shift+D` claim too.
+**There are two live regions, and which one is used matters.** `lib/core.js`
+keeps a polite default and an assertive twin; `announce(text, true)` picks the
+twin. Assertive *interrupts* what is being spoken, polite queues behind it — so
+the twin is reserved for what the user asked for and is waiting on, and has
+exactly two callers, both on the claimed-result path: `deliverClaimed()` and the
+sheet frame's `r20a11ySpeak` receiver. That is what lets a roll cut through the
+context spoken when focus lands back on their control.
 
-**The chatter itself is still unsolved.** See below.
+**Do not widen that list, and do not collapse the two regions into one.** Making
+*everything* assertive was tried in 1.39.0 and reverted in 1.42.0: it turned
+every other player's chat into an interruption and still did not get the result
+out in front of the focus chatter. Assertive is the ceiling — `aria-live` has
+only off/polite/assertive and `role="alert"` is just assertive plus atomic — so
+if a roll lands behind the chatter, more priority is not the lever.
+
+Collapsing them is an easy mistake to make while reverting 1.39.0, and it is
+**silent**: nothing breaks, rolls simply stop interrupting. It happened once
+already.
+
+The result still has to reach the right *frame*. `claimNextAnnouncement(frame)`
+marks the next chat line as the answer to what the user just pressed, and
+`vtt-chat.js`'s flush hands it to `deliverClaimed()` instead of announcing it.
+Delivered, not echoed: routed to the sheet frame when the key came from there,
+spoken here when it did not, and never both or it would be said twice. One line
+clears the claim, with a 5 s ceiling. `alt+shift+I` and `alt+shift+D` claim too.
 
 ### What was tried and did not work
 
@@ -881,18 +896,248 @@ Each of these cost a reload cycle; none of them is worth trying again.
   works, and the result did come through clean, but focus sits in limbo for a
   second or two and the pre-roll chatter is unchanged. Superseded by cutting the
   speech instead.
-- **Pulsing an assertive live region to cut the speech off.** The idea is
-  sound — assertive interrupts — and it was tried at 80 ms, 300 ms and a full
-  second of pulses, with a no-break space and then with commas as the filler.
-  None of it made any difference. The conclusion to carry forward: **an
-  assertive live region does not interrupt a *focus* announcement.** It
-  interrupts other live regions. Focus speech appears to be a separate channel
-  the page cannot reach, so no amount of widening or changing the filler will
-  help, and this should not be tried again.
+- **Pulsing an assertive live region with filler to cut the speech off.** Tried
+  at 80 ms, 300 ms and a full second, with a no-break space and then with
+  commas. None of it made any difference. The likeliest reason is not priority
+  but content: **whitespace-only — and probably punctuation-only — content is
+  normalised to empty, so the region never registers as changed and no
+  announcement is queued at all.** There is nothing to interrupt *with*. Do not
+  try to "clear the queue" this way. Whether assertive can interrupt a focus
+  announcement when it carries *real* content was then tested by making the
+  region assertive by default (1.39.0). It does not: the result still landed
+  behind the chatter, and the cost — every other player's chat interrupting
+  whatever you were reading — was immediate. Reverted to polite.
+- **A native Windows dialog, outside Chrome entirely.** A WinForms chooser
+  reached over Chrome Native Messaging, so the dialog is a window owned by
+  another *process*: Chrome's DOM focus never moves, so there is no focus
+  change to announce and no `aria-modal` element forcing a virtual-buffer
+  rebuild. It worked, and it removed the in-page half of the problem — and it
+  did **not** fix the symptom. Handing the OS foreground back to Chrome makes
+  NVDA re-announce the document and the focused control anyway, which sounds
+  the same as before. Confirmed by ear, and the window was dropped in 1.42.0.
+
+  What came out of that attempt and **was kept** is the silencer — see below.
+  It needs no window, and it is the only thing so far that works.
 - **`autofocus` on the first option** removed a stray "selected" from the dialog
   opening but did **not** stop the dialog being announced twice. That duplicate
   may simply be how NVDA reports entering a modal (the dialog, then the focused
   item in context) rather than two focus events. Unresolved.
+
+### Silencing the way back in
+
+Closing a dialog hands focus to the control that opened it, and NVDA answers by
+reading that control *and* everything it sits inside — over the top of the roll.
+Everything in the list above was an attempt to get in front of that and none of
+them did. **This is the one that works.**
+
+Not by being louder: by asking NVDA to stop talking, through its controller API.
+That needs a Windows process, which a content script is not, hence a native
+messaging host.
+
+| Piece | Where |
+|---|---|
+| The host | `native/Program.cs` + `native/Roll20A11ySilencer.csproj` — `net6.0-windows`, `WinExe`, no UI at all |
+| The API | `native/vendor/nvda-controller-client/` — NVDA's controller client, **vendored** |
+| Installer (dev) | `native/install.sh` — builds from source; needs WSL + the .NET SDK |
+| Installer (shipped) | `native/install.ps1` — installs a prebuilt host; plain Windows, no prerequisites |
+| Packaging | `native/package.sh` → `dist/roll20-a11y/`, a folder to hand to someone else |
+| The relay | `background.js` — the extension's only background script |
+| The caller | `lib/nvda-silence.js`, used by `lib/choice-modal.js` and `lib/remote-modal.js` |
+| Installed to | `%LOCALAPPDATA%\Roll20A11y\` |
+| Registry | `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.roll20a11y.silencer` |
+
+#### The timing chain, which is the whole design
+
+Three constants in `lib/nvda-silence.js`, and they are not independent:
+
+```
+        fire silence(600)                     roll sent            result spoken
+               |                                  |                      |
+     ─────────────────┬──────────────────────────────────────────────────────
+               |  LEAD_MS 150  |            TAIL_MS 450           |
+               |               |                                  |
+               |          dialog closes,                     silence ends
+               |          focus returns,
+               |          chatter queued → cancelled
+```
+
+- **The request goes out *before* the close, not after.** Cancelling that
+  begins after the announcement is already queued lets the first syllable out.
+  So `close()` fires the request, waits out the lead, and only then calls
+  `dialog.close()`. The delay on the dialog disappearing is imperceptible; the
+  cancelling is live by the time there is anything to cancel.
+- **The native port is held open** by `background.js`, so a request is a pipe
+  write and not a process launch. Measured against the installed host: the first
+  request costs **1233 ms** (the process starting), every one after it over the
+  same port costs **0–1 ms**. That is what lets the lead sit at its 60 ms floor;
+  it was 150–500 when each dialog close started a fresh process, and a packaged
+  self-contained build — which starts more slowly still — was the worst case.
+  The port is dropped after 10 minutes without a request, so a browser left open
+  overnight is not also leaving a native process running.
+- **The lead is measured, not declared, and from the *second* ping.** The first
+  ping is what opens the port, so it pays for the process start and says nothing
+  about what a request costs afterwards; sizing the lead from it would budget
+  for a cost paid only once. `probe()` therefore pings twice and times the
+  second. Clamped to 60–500 ms, with a 60 ms margin.
+- **`cancelSpeech` in a loop, not once.** Every 25 ms for the whole window: the
+  announcement is queued at the moment focus lands, so the point is to keep
+  cutting it off for as long as it might be queued.
+- **The roll is held back until the silence ends.** This is the part that is
+  easy to get wrong and looks exactly like the silencer not working: send the
+  roll immediately and its result arrives *inside* the silence window and is
+  cancelled along with the chatter. `afterSilence()` in `lib/remote-modal.js`
+  waits out `TAIL_MS` before committing, and Roll20's own round trip then puts
+  the result comfortably clear.
+
+#### Giving it to someone else
+
+`bash native/package.sh` builds `dist/roll20-a11y/` — the extension plus a
+prebuilt host — which is copied to the other machine and installed per the
+`INSTALL.md` generated inside it. **~15 MB, and it needs nothing installed
+there**: no .NET, no WSL, no build tools, no Visual C++ redistributable.
+
+Three things about it are load-bearing:
+
+- **The host is published self-contained, single-file, ReadyToRun *and*
+  trimmed**, and that combination is chosen for **start-up latency**, not size.
+  The host is launched afresh for every dialog close, so its cold start sits
+  inside the lead before focus moves. Measured here, median of warm runs:
+
+  | Build | Start | Size |
+  |---|---|---|
+  | framework-dependent (what `install.sh` makes) | ~80 ms | 174 KB + a .NET runtime |
+  | self-contained + R2R | ~87 ms | 70 MB |
+  | **self-contained + single-file + R2R + trimmed** | **~150 ms** | **14 MB** |
+  | self-contained + single-file + trimmed, no R2R | ~308 ms | 10 MB |
+
+  Dropping R2R halves the size and doubles the start. Not worth it.
+
+  Since the port is held open, that start is paid **once per session** rather
+  than once per dialog close, which takes most of the sting out of the
+  self-contained build being the slow one.
+
+  `bash native/package.sh --framework-dependent` builds the first row instead —
+  1 MB total rather than 15, for someone who already has a .NET runtime. The
+  csproj sets **`RollForward=LatestMajor`** so it runs on any version from 6 up;
+  the default is `Minor`, which would refuse to start on a machine that has only
+  .NET 8 or 9. That build is four files, not one, and `install.ps1` copies
+  everything beside it rather than the exe alone for exactly that reason.
+
+- **The lead is not a constant, because it cannot be.** A number tuned on the
+  developer's machine is exactly what fails silently on someone else's. The host
+  reports `startupMs` in its ping reply and `lib/nvda-silence.js` sizes the lead
+  from that, clamped to 150–500 ms. A first ping can land cold — 1616 ms was
+  seen on a freshly-copied exe, with Defender scanning 14 MB of it — which
+  clamps to the 500 ms ceiling and settles at ~217 ms on the next page load.
+  Erring long is the safe direction; too short lets the chatter out.
+
+- **`install.ps1` must stay ASCII and keep its UTF-8 BOM.** Windows PowerShell
+  5.1 decodes a `.ps1` as the system ANSI code page unless it finds a BOM, so an
+  em dash in a string is a **parse error on the recipient's machine and not on
+  yours**. This was not theoretical — the first run of the packaged installer
+  died on exactly that, with four cascading syntax errors pointing at the wrong
+  lines. The file carries both properties now and a comment saying so.
+
+`package.sh` finishes by reading the packaged `manifest.json` and confirming
+every file it names is present. The `cp` calls above it name *directories*, so a
+new file in an existing directory is picked up for free but a new kind of file
+is not; a content script missing from the package is a feature that silently
+fails to load somewhere you cannot debug it.
+
+`install.ps1 -Uninstall` removes the registry key and `%LOCALAPPDATA%\Roll20A11y`.
+Both paths were run end to end against the real package before this was written.
+
+#### The DLL is shipped, not found
+
+`nvdaControllerClient.dll` sits **next to the host executable**, put there by
+`install.sh` from `native/vendor/nvda-controller-client/`. That is deliberate
+and it is the second thing that had to be got right.
+
+The first version went looking for it instead, because NVDA does not install
+this DLL — it installs `nvdaHelperRemote.dll`, which exports the same entry
+points, at `NVDA\lib\<version>\<arch>\`. Every part of that path is a guess:
+it is absent for a **portable copy**, wrong for a custom install directory, and
+NVDA is free to reorganise it. Layering registry lookups and a scan of the
+running NVDA process on top made it *less* wrong but not right, and cost ~40 ms
+per launch on the way in.
+
+Shipping the client removes the question entirely. NV Access publishes it for
+exactly this — "`*.dll` file, which you can distribute with your application" —
+under **LGPL v2.1**, unmodified and dynamically loaded, which is what we do. See
+that directory's README for version, source URL and licence compliance. The
+NVDA-installation search survives as a fallback for a host built by hand
+without the DLL beside it, and nothing normally reaches it.
+
+**Tolk** (`dkager/tolk`) was considered for this and rejected: it is
+unmaintained by its own admission, LGPLv3, and does not actually remove the
+dependency — its NVDA backend *is* `nvdaControllerClient.dll`, which it requires
+on `PATH` or in the working directory. It would add an abstraction layer and six
+screen readers we do not use. Revisit it only if JAWS support is ever wanted.
+
+#### Facts about the API
+
+- **One bundled copy covers NVDA 2021.1 through 2026.x**, and that is measured,
+  not assumed: the RPC interface UUID our two calls bind to
+  (`dff50b99-f7fd-4ca7-a82c-daeb3e025295` v1.0) is identical in every release
+  package from 2021.1 on. Controller client 2.0 did not revise that interface —
+  it added a *second* one for `getProcessId` / `speakSsml`, which is exactly why
+  older NVDA answers `RPC_S_UNKNOWN_IF` for those three and nothing else. We
+  call only `testIfRunning` and `cancelSpeech`, both on the unchanged interface.
+  The per-version table is in the vendor README. Below 2021.1 is untested
+  because NV Access no longer publishes those packages.
+- **Nothing else to install.** The DLL imports `USER32`, `RPCRT4` and
+  `KERNEL32` only — no VC++ redistributable, on any architecture.
+- **"It loaded" is not the test.** `Probe()` requires `testIfRunning` to
+  actually answer before accepting a binding, so a bundled client that cannot
+  reach the installed NVDA falls through to that NVDA's own
+  `nvdaHelperRemote.dll` — version-matched by construction. Verified by removing
+  the bundled DLL and watching `ping` resolve to the NVDA copy instead.
+- **Nothing on the web side is an alternative.** What you hear is a
+  *foreground-change* / focus event handled by NVDA, so no ARIA reaches it. And
+  NVDA's "Focus context presentation" setting looks like the answer and is not
+  — per NVDA's own user guide it governs **braille only**.
+
+#### Everything fails soft
+
+No host, another platform, NVDA not running, registry key removed, service
+worker asleep, extension context invalidated by a reload — all end in
+`enabled()` being false, at which point `close()` is the plain close it always
+was and `afterSilence()` runs its callback immediately. There is no degraded
+mode to reason about: it is either on or absent.
+
+**The call sites do not touch `nvdaSilence` directly**, and that is not
+fussiness. `lib/choice-modal.js` and `lib/remote-modal.js` each take
+`window.Roll20A11y.nvdaSilence || {…}` into a local `silencer`, because the
+guarded call sits inside `close()` — so a module that failed to load would throw
+from there and leave **a dialog that cannot be closed at all**. Far worse than a
+noisy one, and on a platform where the module is expected to do nothing anyway.
+`lib/nvda-silence.js` likewise checks for `chrome.runtime.sendMessage` rather
+than assuming it, since it loads on every platform the extension runs on.
+
+**The 0×0 ghost sheet iframe does not probe.** Roll20 mounts two sheet iframes
+and one of them measures 0×0; it runs every sheet content script but can never
+open a dialog, so a probe from it is two round trips that can only be thrown
+away. Same body-size test the other sheet features use.
+
+Covered by an offline test, `check-fallback.js` in the scratchpad — 13 cases,
+no browser and no host. It loads `lib/nvda-silence.js` against stubbed messaging
+for every way the silencer can be absent (no host, NVDA not running, service
+worker gone, `sendMessage` throwing, no `chrome` at all) and asserts `enabled()`
+stays false, `silence()` does not throw and `lead()` still returns a number. It
+also pins the parts that are easy to get subtly wrong: that two pings are sent,
+that the lead comes from the warm one and **not** from `startupMs`, that the
+ghost frame sends nothing while a real sheet frame does, and that neither call
+site names `nvdaSilence` unguarded.
+
+`{"type":"ping"}` reports `nvda` and `helper` for exactly this reason — it is
+the only way to tell "the silencer is working" from "the silencer found nothing
+to talk to" without pressing a key and listening. `background.js` caches that
+reply across frames, so the probe costs one process launch per service-worker
+lifetime rather than one per frame (the 0×0 ghost sheet iframe asks too).
+
+Testing it needs the same reload-and-refresh as everything else, plus
+`bash native/install.sh` once — and again whenever `native/Program.cs` changes,
+because reloading the extension does **not** rebuild the host.
 
 ### Reading the character (`alt+shift+H` / `alt+shift+T`)
 

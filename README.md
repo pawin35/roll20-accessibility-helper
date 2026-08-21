@@ -43,6 +43,43 @@ There is no build step and there are no dependencies. Load the folder as it is.
 3. Click **Load unpacked** and select this folder.
 4. Open a Roll20 character sheet or launch a game.
 
+That is the whole installation. The optional helper below changes nothing about
+it.
+
+### Optional: the NVDA silencer (Windows only)
+
+When a dialog closes, focus goes back to the control that opened it and a screen
+reader answers by reading that control *and* everything it sits inside — over
+the top of the roll you were waiting for. No web page can get in front of that:
+it is a focus event handled by the screen reader, not anything the page controls.
+
+What can is NVDA's own controller API, which needs a Windows program to call it.
+`native/` is that program — no window, no interface, one job: ask NVDA to stop
+talking for the moment focus moves back.
+
+```bash
+bash native/install.sh          # WSL + the .NET SDK; builds and registers it
+```
+
+Everything works without it, just more noisily, and **it is never required**: no
+host, another platform, NVDA not running, or JAWS instead all end in the
+extension quietly not using it. There is no half-working state.
+
+### Giving it to someone else
+
+```bash
+bash native/package.sh                          # ~15 MB, needs nothing installed
+bash native/package.sh --framework-dependent    # ~1 MB, needs .NET 6+ there
+```
+
+Builds `dist/roll20-a11y/` — the extension plus a prebuilt helper and an
+`INSTALL.md` written for someone who has never seen this repo. They copy the
+folder, load it unpacked, and run `native\install.ps1` (plain Windows
+PowerShell; no WSL, no SDK). On macOS or Linux they just skip that step.
+
+The extension id is pinned in `manifest.json`, so it is the same wherever the
+folder lives — which is what lets the helper's registration name it in advance.
+
 **After changing any file, press Reload on the extension card *and* refresh the
 Roll20 tab.** Both steps, every time — a content script already running in an
 open tab is not replaced until the page reloads, and a stale script looks
@@ -50,6 +87,10 @@ exactly like a broken feature.
 
 Requires Chrome 111 or newer (one component runs in the page's own JavaScript
 world, which needs `"world": "MAIN"` support).
+
+Chrome will list **"Communicate with cooperating native applications"** among the
+permissions. That is the optional silencer above and nothing else; on a machine
+without it, nothing uses it.
 
 ---
 
@@ -92,22 +133,60 @@ result is announced when it arrives.
 | `alt+shift+A` | Open the ability dropdown and roll a check or save |
 | `alt+shift+I` | Roll initiative |
 | `alt+shift+D` | Roll a death save |
-| `alt+shift+H` | Whisper a readout of your HP and AC |
+| `alt+shift+H` | Speak your HP and AC |
+| `alt+shift+T` | Speak your remaining spell slots |
 | `alt+shift+R` | Type a dice formula and roll it (`/r`) |
+| `alt+shift+E` | Open your character sheet, beep when it has loaded |
 
 Skill and ability open a small dialog listing the options (18 skills, or the 12
 ability checks and saves); the arrow keys move through them, Enter or Space
 rolls, Escape closes without rolling. Each sends Roll20's macro form
 `%{Character Name|attribute}` for your first controlled character, so
 `alt+shift+S` → `%{Brother Lorian|perception}` and `alt+shift+D` →
-`%{Brother Lorian|death_save}`. `alt+shift+H` whispers the character's current
-HP, maximum, temp HP and AC back to you.
+`%{Brother Lorian|death_save}`.
+
+`alt+shift+H` and `alt+shift+T` **send nothing** — they read your character out
+of Roll20's own data model and speak the answer to you alone, so nothing appears
+in the chat log and the rest of the table is none the wiser:
+
+```
+HP 12 out of 12, with 0 temp HP, AC is at 18.
+Spell slots. Level 1: 2 of 2. Level 3: 1 of 3.
+```
+
+Levels you have no slots at are left out. Warlock pact slots are reported
+separately, and without a total, because the sheet does not store one.
+
+`alt+shift+E` opens the floating character sheet and plays a short rising beep
+once it has finished rendering, so you are not left guessing whether it is ready
+to use. If it is already open it says so and does nothing else.
 
 `alt+shift+R` opens a box for a dice formula and rolls it with `/r`. A formula
 is one or more terms joined by `+` or `-`, where a term is `XdY`, `dY` (a
 shorthand for `1dY`), or a plain number — so `2d6+3`, `d20-1`, `3d8` and `5` are
 all valid, and `d` and `D` are interchangeable. Anything else is spoken as
 invalid and not sent.
+
+### Attacks — game session only
+
+| Key | Does |
+| --- | --- |
+| `alt+W` | Open the attack dropdown and roll the chosen attack |
+| `alt+shift+W` | Open the same list and roll that attack's **damage** |
+
+The same dialog as the roll shortcuts, listing your attacks named with what they
+will actually roll, worked out from your character rather than read off the
+sheet — so the list is right whether or not a sheet is open:
+
+```
+alt+W                                     alt+shift+W
+Sacred Flame - DEX 13                     Sacred Flame - damage 1d8
+Longsword (One-Handed) - attack roll +5   Longsword (One-Handed) - damage 1d8+3
+Unarmed Strike - attack roll +3           Unarmed Strike - damage 2 Bludgeoning
+```
+
+Proficiency, ability modifiers and save DCs are all computed the way the sheet
+computes them, including expertise and half-proficiency.
 
 ### Chat — game session only
 
