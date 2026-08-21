@@ -63,6 +63,7 @@
     markReady,
     NO_FOCUS_ATTR,
     rollFormat,
+    deliverClaimed,
   } = window.Roll20A11y;
   const { textOf, describeTemplate, judge, critKindFromTemplate } = rollFormat;
 
@@ -647,7 +648,11 @@
     );
     if (!audible.length) return;
     for (const item of audible) requestSound(item.sound);
-    announce(audible.map((item) => item.line).join(" "));
+    const line = audible.map((item) => item.line).join(" ");
+    // A shortcut may have claimed this line as its own result — see
+    // `claimNextAnnouncement` in lib/core.js. It is then delivered there,
+    // assertively, and must not be announced here as well.
+    if (!deliverClaimed(line)) announce(line);
   }
 
   function process(msg, speak) {

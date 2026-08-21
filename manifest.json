@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Roll20 Accessibility Helper",
-  "version": "1.34.1",
+  "version": "1.38.4",
   "description": "Unofficial accessibility improvements for Roll20: table semantics for the character sheet's panels, accessible names for its icon-only controls, dialog focus management, spoken roll results that do not steal focus, a VTT text chat read one line per message with keyboard navigation, a screen-reader battle-grid table for the VTT, and keyboard-accessible replacements for mouse-only interactions such as compendium drag-and-drop.",
   "permissions": [
     "storage"
@@ -30,6 +30,10 @@
       ],
       "js": [
         "lib/core.js",
+        "lib/choice-modal.js",
+        "lib/remote-modal.js",
+        "lib/character-rolls.js",
+        "lib/character-data.js",
         "lib/roll-format.js",
         "lib/grid-geometry.js",
         "features/roll-mode-keys.js",
@@ -40,7 +44,9 @@
         "features/map-grid.js",
         "features/terrain.js",
         "features/relative-position.js",
-        "features/roll-shortcuts.js"
+        "features/roll-shortcuts.js",
+        "features/attack-shortcuts.js",
+        "features/open-sheet.js"
       ],
       "css": [
         "styles.css"
@@ -63,7 +69,8 @@
         "https://app.roll20.net/editor/*"
       ],
       "js": [
-        "page/tabletop-bridge.js"
+        "page/tabletop-bridge.js",
+        "page/character-bridge.js"
       ],
       "world": "MAIN",
       "run_at": "document_idle"
@@ -75,6 +82,10 @@
       "all_frames": true,
       "js": [
         "lib/core.js",
+        "lib/choice-modal.js",
+        "lib/remote-modal.js",
+        "lib/character-rolls.js",
+        "lib/character-data.js",
         "lib/roll-format.js",
         "features/last-result.js",
         "features/roll-mode-keys.js",
@@ -100,7 +111,9 @@
         "features/spells-table.js",
         "features/inventory-table.js",
         "features/currency.js",
-        "features/roll-shortcuts.js"
+        "features/roll-shortcuts.js",
+        "features/attack-shortcuts.js",
+        "features/open-sheet.js"
       ],
       "css": [
         "styles.css"

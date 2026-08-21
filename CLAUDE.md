@@ -29,11 +29,13 @@ page/<shim>.js                           runs in the PAGE's world, not ours
 **`page/` is not `features/`.** Anything in there is registered with
 `"world": "MAIN"` and runs in Roll20's own JavaScript context: no `chrome.*`, no
 `window.Roll20A11y`, none of the isolated world's globals. It exists only for
-things that genuinely cannot be done from a content script — currently three
+things that genuinely cannot be done from a content script — currently four
 things: suppressing Roll20's chat beep on a roll, the battle-grid bridge (see
-below), which needs `Campaign`, a page-world-only object, and suppressing a
-programmatic focus during synthetic activation (`suppress-focus.js` — see
-"Focus suppression" under Critical invariants). Reach for it last.
+below), which needs `Campaign`, a page-world-only object, the character-model
+bridge (`character-bridge.js`, which needs the same `Campaign`), and
+suppressing a programmatic focus during synthetic activation
+(`suppress-focus.js` — see "Focus suppression" under Critical invariants).
+Reach for it last.
 
 Five `content_scripts` entries covering **two different Roll20 pages** plus the
 sheet iframe, which is embedded in both of them. The VTT and the sheet each have
@@ -43,7 +45,7 @@ a page-world (`world: MAIN`) entry alongside their isolated-world one:
 |---|---|---|
 | `app.roll20.net/characters/sheet/*` | top | compendium drag-and-drop replacement, icon labels, the roll log and the "Last Result" box |
 | `app.roll20.net/editor/*` | top | the VTT: sidebar tabs, the text chat, roll-mode keys |
-| `app.roll20.net/editor/*` (`world: MAIN`) | top, page world | three shims: the chat-beep suppressor, the focus suppressor, and the battle-grid bridge |
+| `app.roll20.net/editor/*` (`world: MAIN`) | top, page world | four shims: the chat-beep suppressor, the focus suppressor, the battle-grid bridge, and the character-model bridge |
 | `advanced-sheets.production.roll20preflight.net/*` (`all_frames`) | sheet | everything about the sheet itself |
 | `advanced-sheets.production.roll20preflight.net/*` (`world: MAIN`, `all_frames`) | sheet, page world | the focus suppressor (`suppress-focus.js`) |
 
@@ -70,6 +72,8 @@ Several files are listed in **more than one** entry and branch on
   split as the chat keys: the sheet half forwards the key, the top frame sends
   or opens the modal, and the "done" reply is the sheet's cue to take focus
   back.
+- `attack-shortcuts.js` / `open-sheet.js` — the same split again, for `alt+W` /
+  `alt+shift+W` and `alt+shift+E`.
 
 All content scripts share one isolated-world global scope. `lib/core.js`
 publishes `window.Roll20A11y`; `lib/grid-geometry.js` adds `gridGeom` to it;
@@ -276,10 +280,10 @@ Decisions worth preserving:
 ### Money steppers (`features/currency.js`)
 
 The INVENTORY tab's purse renders five `.edit-purse__currency-edit`
-denominations — Platinum, Gold, Electrum, Silver, Copper — each a
-PolyIncrementer: name in `.poly-incrementer__label`, value in
-`.poly-incrementer__input` (`input.value`), and two unlabelled
-`.poly-incrementer__button--increment/--decrement` buttons. The buttons are named
+denominations — Platinum, Gold, Electrum, Silver, Copper — each an incrementer:
+name in the label, value in the input (`input.value`), and two unlabelled
+increment/decrement buttons. Match them through **`Roll20A11y.INCREMENTER`**,
+never a literal class — see "Roll20's two number steppers" below. The buttons are named
 "Increase/Decrease *X*", and every change is spoken "*X*: *n*" through the shared
 live region. Two mechanisms, both because Vue re-renders freely:
 
@@ -618,7 +622,10 @@ always, in the sheet. Matched on `event.code`, so a non-US layout still works.
 | `alt+shift+A` | Open the ability-roll dropdown (checks and saves) | VTT |
 | `alt+shift+I` | Roll initiative directly | VTT |
 | `alt+shift+D` | Roll a death save directly | VTT |
-| `alt+shift+H` | Whisper a readout of HP and AC | VTT |
+| `alt+shift+H` | Speak the character's HP and AC | VTT |
+| `alt+shift+T` | Speak the character's remaining spell slots | VTT |
+| `alt+W` / `alt+shift+W` | Open the attack-roll / attack-damage dropdown | VTT |
+| `alt+shift+E` | Open the character sheet, beep when it has loaded | VTT |
 | `alt+shift+R` | Prompt for a dice formula and roll it with `/r` | VTT |
 | `alt+shift+-` | Toggle token movement/change announcements (default off) | VTT |
 | `alt+shift+=` | Toggle the readout of others' chat and rolls (default on) | VTT |
@@ -676,11 +683,19 @@ death save, and state have no dropdown and send straight away:
 - `alt+shift+A` → `%{Name|strength}`, … `%{Name|charisma_save}`
 - `alt+shift+I` → `%{Name|initiative}`
 - `alt+shift+D` → `%{Name|death_save}`
-- `alt+shift+H` → `/w "Name" HP @{Name|hp} out of @{Name|hp|max}, with @{Name|hp_temp} temp HP, AC is at @{Name|ac}`
+
+`alt+shift+H` (HP and AC) and `alt+shift+T` (spell slots) **send nothing**. They
+read the character model through `Roll20A11y.requestCharacter` and speak the
+answer — see "Reading the character" below.
 
 The character is the current player's first controlled character, by name, read
 from the VTT's "Speak As" dropdown (`#speakingas`) — the options Roll20 already
 keeps sorted, so the first `character|…` option is the one to roll as.
+`currentCharacterName()` lives in `lib/core.js` so every shortcut that rolls
+agrees on who it is rolling as; two copies of it could drift apart.
+
+The modal itself is `lib/choice-modal.js`, shared with the attack shortcuts
+below.
 
 `features/speaking-as.js` (VTT top frame) sets `#speakingas` to that same first
 character on load, so chat is sent in-character instead of under the account
@@ -700,6 +715,259 @@ document-level capture keydown (the native `cancel` stays as fallback). The key
 is registered in both frames like every shortcut: the sheet frame forwards it,
 the top frame acts, and focus is handed back down once the dialog closes or the
 roll is sent.
+
+### Attack shortcuts (`alt+W` / `alt+shift+W`)
+
+`features/attack-shortcuts.js`. Both keys open the same modal over the
+character's attacks, named with what they will roll, and send the chosen row's
+repeating-section macro:
+
+```
+%{Name|repeating_attack_$N_attack}       alt+W         the attack roll
+%{Name|repeating_attack_$N_attack_dmg}   alt+shift+W   its damage
+```
+
+```
+Sacred Flame - DEX 13                        Sacred Flame - damage 1d8
+True Strike Bonus Damage                     True Strike Bonus Damage - damage 0 Radiant
+Longsword (One-Handed) - attack roll +5      Longsword (One-Handed) - damage 1d8+3
+Throw Holy Water - DEX 11                    Throw Holy Water - damage 2d8 Radiant
+Longsword (Two-Handed) - attack roll +3      Longsword (Two-Handed) - damage 1d10+1 Slashing
+Unarmed Strike - attack roll +3              Unarmed Strike - damage 2 Bludgeoning
+```
+
+Unlike every other shortcut, the contents come from Roll20's **model**, not its
+DOM: `page/character-bridge.js` (page world) reads the character's `store`
+attribute out of `Campaign.characters` and posts the raw integrants over;
+`lib/character-rolls.js` (isolated world) derives the labels. The round trip is
+`Roll20A11y.requestCharacter(name)` in `lib/character-data.js`, shared with the
+HP and spell-slot readouts. That split is the
+same one the battle grid uses, and for the same reason — see
+`roll20-character-model.md` for the model itself. No sheet needs to be open:
+`Campaign.characters` and `store` are populated at game join.
+
+Facts established live in campaign 21893368, each of which shaped the design:
+
+- **`$N` is the position among the Attack integrants**, in
+  `Object.values(store.integrants.integrants)` order —
+  `repeating_attack_$0_attack` rolled Sacred Flame and `$2` rolled the
+  one-handed Longsword, matching that order exactly. So the list is built
+  **unfiltered and unsorted**: dropping or reordering one row silently rolls the
+  wrong attack. The bridge posts an **array**, not the object it came from, so
+  the order cannot be lost in transit.
+- **Only two action names work.** `_damage`, `_dmg`, `_roll` and `_crit` are all
+  answered with *"…is not a supported action"*. Damage is `_attack_dmg`.
+- **An attack with no attack roll is still rollable.** "True Strike Bonus
+  Damage" has `attack: null`, and `$1_attack` returns its damage card rather
+  than erroring, so no index in the list is a dead end and none needs hiding.
+- **The chat card's Damage button is not a macro.** It is
+  `data-sheet-action="damage"` with
+  `data-args="normal:I|<attackId>:I|<damageId>"`, dispatched through
+  `characterSheet.state.allRelays["1"].methods.performAction`. That is a second,
+  entirely separate route to the same roll; the macro form is used here because
+  it goes through the ordinary chat send and needs no relay.
+- `characterSheet.availableRolls` / `availableActions` / `tokenActions` stay
+  **empty** on an advanced sheet, and `relay.methods.getCharacterMacros` returns
+  `{macros:{}}`. Neither is a route to the macro list; the only way to learn an
+  action name is to send it and read the error.
+
+The arithmetic, all validated against `test.json` and confirmed by the live
+rolls above (`Wisdom +3, Proficiency +2` for the `+5`; `1d8+3` for the damage):
+
+| Quantity | Rule |
+|---|---|
+| Ability score | `Ability Score` integrants: **two passes** — `Set Base` assigns, then `Modify` adds. One pass is order-dependent and the store interleaves them (a background `Modify` for Wisdom sits *before* the point-buy `Set Base` that would wipe it). |
+| Proficiency bonus | `2 + floor((maxTotalLevel − 1) / 4)` over the `Class Level` integrants |
+| Attack roll | `mod(attack.abilityBonus) + PB + attack.bonus`, for `attack.type` of `Melee`/`Ranged` only |
+| Save DC | `save.saveFormula` when present (`flatValue` + ability × multiplier + PB), otherwise `8 + PB + mod(spellcasting ability)`, walking `attack.parentID → Spell → parentID → Spellcasting` |
+| Save label | abbreviates **`save.saveAbility`** — the ability the *target* rolls, not the one that set the DC. That is why Sacred Flame reads "DEX 13" off a Wisdom caster. |
+| Damage | first `Damage` child: `_diceCount`d`diceSize` `+ _bonus + abilityMod`, where `ability` is `"auto"` (the attack's own ability), `"none"`, or a named one. No dice → the flat total alone, which is how Unarmed Strike reads "2". `damageType` appended when non-empty. |
+
+**Proficiency is looked up, not assumed.** `attack.proficiencyLevel` wins when
+it is there (Unarmed Strike states "Proficient" outright). Otherwise the weapon
+comes from the attack's `parentID` — a weapon attack hangs off its Item — and
+the Item's **`weaponData`** carries both the tier and the weapon's own name:
+
+```jsonc
+"weaponData": { "category": "Melee", "training": "Martial", "type": "Longsword" }
+```
+
+Either half can be what a `category: "Weapon"` `Proficiency` integrant names
+(`proficiency: "Simple"` / `"Martial"` from a class, a specific weapon from a
+species), so both are matched and the best `proficiencyLevel` wins — Expertise
+doubles PB, "Half Proficient" halves it, "Not Proficient" drops it.
+
+The one remaining default: an attack whose weapon cannot be resolved at all —
+a spell attack, or a custom one with no Item behind it — counts as proficient,
+which is what those are in practice. A weapon that *is* resolved and matches
+nothing is **not** proficient.
+
+`equipData` is a red herring here (it holds only `{equippable, equipped}`) and
+the `Damage` integrant carries no proficiency information at all — the fields
+are `_diceCount`, `diceSize`, `_bonus`, `ability`, `damageType`, `overrideCrit`,
+`critDiceSize`. Damage never includes PB in the first place.
+
+`lib/character-rolls.js` takes a plain list and returns plain data, so it can be
+exercised **offline against `test.json`** — which holds a real page-world
+snapshot of the reference character, store included — with no browser and no
+reload cycle. Do that before every hand-test; it is the only automated coverage
+in the repo.
+
+### Focus and the dialogs
+
+A dialog takes focus, and giving it back announces whatever receives it — over
+the top of the roll the dialog just fired. Two mechanisms in `lib/core.js`,
+`parkFocus()` and `deferUntilQuiet()`, and both matter.
+
+**The dialog opens in the frame that pressed the key.** `lib/remote-modal.js`:
+the top frame decides what is in the list and posts it down, the sheet frame
+opens the dialog and posts the choice back, and the top frame sends the macro.
+Focus never crosses the iframe boundary.
+
+That is not a nicety. Opening it in the top frame while the user was in the
+sheet cost this, every time, and none of it is suppressible — it is simply what
+leaving and re-entering a document costs:
+
+```
+out of table  out of frame  same page link  Skip to the chat tab  blank
+…
+Character sheet for Tempis  frame  Ability scores  table with 7 rows and 5 columns  Roll…
+```
+
+("Skip to the chat tab" is Roll20's own link, not ours. The re-orientation
+appears to be NVDA rebuilding its virtual buffer in the top document once the
+`aria-modal` dialog closes and the rest of the page becomes visible to it
+again.)
+
+Because the result still arrives in the **top** frame's chat log, it is
+**routed** down rather than announced there — `routeAnnouncementsTo(frame)` in
+`lib/core.js`, consumed by `vtt-chat.js`'s flush. Routed, not echoed: while a
+route is set the top frame does not announce at all, or the line would be spoken
+twice. One line clears the route, with a 5 s ceiling. The same routing covers
+`alt+shift+I` and `alt+shift+D`, which send straight to chat.
+
+**Focus goes back at once, and the speech that follows is cut off.** Closing the
+dialog hands focus to the control that opened it — and a screen reader answers
+by reading the control *plus* everything it sits inside:
+
+```
+Ability scores  table with 7 rows and 5 columns  Roll Strength +1 saving throw  button
+```
+
+What carries the result over that chatter is being announced **assertively** —
+`claimNextAnnouncement(frame)` marks the next chat line as the answer to what
+the user just pressed, and `vtt-chat.js`'s flush hands it to `deliverClaimed()`
+instead of announcing it. Delivered, not echoed: routed to the sheet frame when
+the key came from there, spoken here when it did not, assertive either way, and
+never both or it would be said twice. One line clears the claim, with a 5 s
+ceiling. `alt+shift+I` and `alt+shift+D` claim too.
+
+**The chatter itself is still unsolved.** See below.
+
+### What was tried and did not work
+
+Each of these cost a reload cycle; none of them is worth trying again.
+
+- **Parking focus on a hidden element before `showModal()`**, so the dialog's
+  restore lands somewhere silent. It works — but the park is outside the ARIA
+  table, so a screen reader announced "out of table", then hunted for context
+  and read a neighbouring control ("radio button, not checked, Whisper"), then
+  "blank". Moving focus *anywhere* costs an announcement; the only question is
+  whose.
+- **Giving the park an `aria-label` of a no-break space**, on the theory that a
+  screen reader reads surrounding content to compensate for a missing name. No
+  effect — "Whisper" was still announced.
+- **Deferring the hand-back** until the result had plausibly been spoken. Also
+  works, and the result did come through clean, but focus sits in limbo for a
+  second or two and the pre-roll chatter is unchanged. Superseded by cutting the
+  speech instead.
+- **Pulsing an assertive live region to cut the speech off.** The idea is
+  sound — assertive interrupts — and it was tried at 80 ms, 300 ms and a full
+  second of pulses, with a no-break space and then with commas as the filler.
+  None of it made any difference. The conclusion to carry forward: **an
+  assertive live region does not interrupt a *focus* announcement.** It
+  interrupts other live regions. Focus speech appears to be a separate channel
+  the page cannot reach, so no amount of widening or changing the filler will
+  help, and this should not be tried again.
+- **`autofocus` on the first option** removed a stray "selected" from the dialog
+  opening but did **not** stop the dialog being announced twice. That duplicate
+  may simply be how NVDA reports entering a modal (the dialog, then the focused
+  item in context) rather than two focus events. Unresolved.
+
+### Reading the character (`alt+shift+H` / `alt+shift+T`)
+
+Both speak, and neither sends:
+
+```
+HP 12 out of 12, with 0 temp HP, AC is at 18.
+Spell slots. Level 1: 2 of 2. Level 3: 1 of 3.
+```
+
+`alt+shift+H` used to whisper itself the numbers with
+`/w "Name" HP @{Name|hp} out of @{Name|hp|max} …`. That needed the sheet worker
+running to resolve the macros, put a line in the log on every press, and told
+the rest of the table it had happened. Reading the model has none of those costs
+and works with the sheet shut.
+
+- **HP and AC come from `custom_meta1`**, a character *attribute* (not a store
+  key) holding Roll20's own computed summary:
+  `{ hp: { current, max, temp }, ac: { total }, currency: [...] }`. This is the
+  one place maximum HP exists — the store has hit dice and a pile of `Hit Points`
+  "Modify" bonuses, never the total — so it is read from here, with
+  `store.hitpoints` as the fallback for current and temporary HP. Max has no
+  fallback; the sentence just omits it.
+- **Spell slots need both halves from different places.** How many are *left* is
+  `store.spellSlots.currentByLevel`, keyed `CANTRIP`/`FIRST`/…/`NINTH`. Totals
+  are not stored at all — the sheet computes them, two ways, both transcribed
+  from the bundle:
+  1. the character's own `Spell Slot` integrants (`spellLevel`, `calculation` of
+     `"Set Base"` or `"Modify"`, `valueFormula.flatValue`), which is what the
+     sheet uses for a single spellcasting class;
+  2. Roll20's slot table indexed by caster level, which it uses when the
+     character multiclasses.
+
+  We try (1) and fall back to (2) when it yields nothing, because a store whose
+  `Spell Slot` integrants have not loaded would otherwise tell a Cleric they
+  have no spell slots. **`test.json` is exactly that case** — it carries no
+  `Spell Slot` integrants at all (it has dangling `childIDs` elsewhere too), so
+  the offline test exercises the fallback, and the integrant path is covered
+  with synthesised ones.
+- **Levels with no slots are omitted**, which is also what the sheet does — its
+  table lookup drops zero entries before returning.
+- **Warlock pact slots** are a separate pool (`currentPactByLevel`) whose total
+  this does not compute, so only what is left is spoken: "Pact magic: 2 at level
+  3." Reporting them without a total beats dropping them silently.
+
+Readouts are announced in **whichever frame the key was pressed**: `replyDone`
+carries the line down to the sheet frame as `r20a11ySay`, the same way the chat
+shortcuts hand their result back. Careful with it — `choiceModal`'s `onClose`
+passes a *boolean*, so the modal path wires `onClose: () => replyDone()` rather
+than passing the function straight in, or the dropdown would announce "true".
+
+### Opening the sheet (`alt+shift+E`)
+
+`features/open-sheet.js`. `alt+E` is not usable — it is Chrome's own accelerator
+for the three-dot menu.
+
+- **`char.view.showDialog("sheet")`, not `d20.engine.openCharacterForToken(id)`.**
+  The latter is what `roll20-character-model.md` recommends and it was verified
+  live to return without error and do **nothing at all**. Note also that
+  `window.d20` is **undefined** on the VTT; it lives on
+  `CharacterSheetsManagerSingleton.d20` and on each `character.d20`.
+- **Already open → announce and stop.** Reopening restarts the sheet worker,
+  which is what resolves `@{Name|hp}` for `alt+shift+H`, for no gain.
+- **"Loaded" is the sheet frame's own account of itself.** It polls until its
+  document has laid out and holds rendered controls, then posts up. The test is
+  deliberately *not* tied to a Roll20 class name: those move between deploys and
+  a wrong one means a beep that never comes.
+- **The top frame also asks** (`r20a11ySheetReadyQuery`), because Roll20 reuses
+  one iframe — reopening a closed sheet renders nothing new, so there is no
+  spontaneous report to wait for. Same race-closing pattern as
+  `r20a11yGridReady` in the tabletop bridge.
+- The beep is a rising 784→1047 Hz pair, distinct from 440/660 (chat log
+  boundaries), 880 (grid change) and 660→880 ("Table ready."). It plays in
+  **whichever frame the key was pressed**, and the context is primed on the
+  keydown, because the thing that finally triggers it is a `postMessage`.
 
 ## Test page
 
@@ -825,6 +1093,22 @@ Roll20's page is Vue-based. These caused real, hard-to-diagnose bugs:
 - **`aria-colindex` is not enough on a plain `role="table"`.** NVDA counts cells
   positionally, so a row missing an optional cell still shifts. Insert real
   filler cells for the absent columns.
+- **Roll20's two number steppers.** The sheet ships `PolyIncrementer` *and*
+  `UtilityIncrementer` — structurally identical, `poly-` vs `utility-`
+  throughout — and uses both. Ability scores moved to the new one and every
+  feature naming the old one stopped matching **silently**, because only
+  `abilities-table.js` and `skills-table.js` report a failure at all. Both are
+  still in the bundle, so this is an addition, not a rename. Match with
+  `Roll20A11y.INCREMENTER` (`BOX` / `LABEL` / `INPUT` / `INCREASE` /
+  `DECREASE`), which accepts either; four features depend on it
+  (`abilities-table`, `control-labels`, `currency`, `inventory-table`). The two
+  differ in one way that matters: Poly's caption is `<label role="label">`,
+  which nullifies the element's own semantics and names nothing, while
+  Utility's has no role, so its `for`/`id` pair works.
+- **The ABILITIES panel is duplicated, like SKILLS.** Two
+  `.inline-abilities-panel__ability-items` exist with the *same class*, one at
+  0x0 and one visible, six rows each — so unlike SKILLS there is no class to
+  scope by, only size. Any count taken from that panel is doubled.
 
 ## Conventions
 
@@ -853,11 +1137,29 @@ Fetch in the page and string-search. The browser tool blocks returning long raw
 slices; replacing `=`, `;` and `?` before returning the string works around it
 (`clean()` in `lib/core.js` does exactly this).
 
-**The sheet bundle is not reachable from the top frame.** Getting its hash
-needs a network request made *by the sheet frame*, and `read_network_requests`
-does not surface the iframe's subresources — it returns nothing for
-`advanced-sheets`, `sheet.js` or `cdn.roll20.net`. Fetching the frame's own
-document URL to read the script tag out of it fails too: the preflight origin
-sends no CORS headers, so it is a bare `TypeError: Failed to fetch`. Both were
-tried. When the question is about sheet markup, go straight to the probe —
-it is faster than either route and answers the actual question.
+**Getting the sheet bundle's hash: use the probe's own heartbeat.**
+`read_network_requests` does not surface the iframe's subresources (nothing for
+`advanced-sheets`, `sheet.js` or `cdn.roll20.net`), and fetching the frame's
+document URL to read the script tag out of it is a bare `TypeError: Failed to
+fetch` — the preflight origin sends no CORS headers. Both were tried.
+
+But the sheet frame knows its own `location`, and `debug()` can post it out. The
+probe's heartbeat line already carries it:
+
+```
+heartbeat top:false body:1280x0 path:/https://storage.googleapis.com/roll20-cdn/advanced-sheets-production-9b1f7af9/dnd2024byroll20/dnd2024byroll20
+```
+
+With that hash the bundle is an ordinary `curl` away, from the shell, no browser
+involved:
+
+```bash
+curl -sL https://cdn.roll20.net/advanced-sheets-production-<hash>/dnd2024byroll20/sheet.js -o sheet.js
+grep -o '[a-z0-9-]*incrementer[a-z0-9_-]*' sheet.js | sort | uniq -c | sort -rn
+```
+
+That is how the two incrementer components were found, and how the exact button
+modifiers (`increment` / `decrement`) were confirmed without another reload
+cycle. Reach for it when the probe has told you *that* something is renamed and
+you need to know what to, or what else moved with it. The probe still comes
+first: it answers which selector broke, and it hands you the hash.

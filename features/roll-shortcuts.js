@@ -5,7 +5,8 @@
  *   alt+shift+A   open the ability-roll dropdown (checks and saves)
  *   alt+shift+I   roll initiative directly
  *   alt+shift+D   roll a death save directly
- *   alt+shift+H   whisper a readout of the character's HP and AC
+ *   alt+shift+H   speak the character's HP and AC
+ *   alt+shift+T   speak the character's remaining spell slots
  *
  * A character's skill/ability is rolled by sending Roll20's macro form
  * `%{Character Name|attribute}` into the chat box. The character name is the
@@ -13,32 +14,52 @@
  * "Speak As" dropdown (`#speakingas`) — the options Roll20 already keeps
  * sorted, so the first `character|…` option is the one to roll as.
  *
- * Skill and ability both open a native `<dialog>` (showModal) holding a single
- * `<select>`. The platform supplies what "aria modal" asks for — role="dialog",
- * aria-modal, a focus trap over the rest of the page, and focus restore to the
- * previously-focused element on close — so no manual trap is needed. The
- * dropdown is focused on open; Escape or the Close button dismisses without
- * rolling, and choosing an option rolls it and dismisses. The initiative,
- * death-save, and state shortcuts have no dropdown and send straight away.
+ * Skill and ability both open the shared modal from `lib/choice-modal.js` — a
+ * native `<dialog>` holding an ARIA listbox. It is focused on open; Escape or
+ * the Close button dismisses without rolling, and choosing an option rolls it
+ * and dismisses. The initiative, death-save, and state shortcuts have no
+ * dropdown and send straight away.
  *
- * The send itself goes through `Roll20A11y.sendChatText` (exported by
+ * H and T send nothing: they read the character model through
+ * `Roll20A11y.requestCharacter` and speak the answer. H used to whisper itself
+ * the numbers in chat, which needed the sheet worker running to resolve
+ * `@{Name|hp}`, put a line in the log every time it was pressed, and told
+ * everyone at the table that it had been. The model route has none of those
+ * costs and works with the sheet shut.
+ *
+ * The rolling shortcuts still send: that goes through
+ * `Roll20A11y.sendChatText` (exported by
  * features/vtt-chat.js), so it reuses the same focus-restore dance as every
  * other chat send, and the result is announced when it arrives in the log —
  * no "Sent." in between.
  *
- * Like the other shortcuts this is registered in both frames: while focus is
- * in the floating character sheet the key is forwarded up, the top frame acts,
- * and focus is handed back down once the dialog closes (or the roll is sent).
+ * Registered in both frames. While focus is in the floating character sheet the
+ * key is forwarded up and the top frame acts. For the two dropdowns the dialog
+ * is then opened back down *in the sheet frame* by `lib/remote-modal.js`, so
+ * focus never crosses the iframe boundary; for everything else the reply is the
+ * sheet's cue to take focus back, and carries anything to speak.
  */
 (function () {
   "use strict";
 
-  const { CLASS_PREFIX, announce, debug } = window.Roll20A11y;
+  const {
+    announce,
+    debug,
+    choiceModal,
+    currentCharacterName,
+    characterRolls,
+    requestCharacter,
+    remoteModal,
+    claimNextAnnouncement,
+  } = window.Roll20A11y;
 
   const TOP_ORIGIN = "https://app.roll20.net";
   const SHEET_ORIGIN = "https://advanced-sheets.production.roll20preflight.net";
 
-  /** "skill" | "ability" | "initiative" | "deathsave" | "state" | "". Matched on `event.code`. */
+  /**
+   * "skill" | "ability" | "initiative" | "deathsave" | "state" | "slots" | "".
+   * Matched on `event.code` so a non-US layout still works.
+   */
   function rollKey(event) {
     if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return "";
     const code = event.code || "";
@@ -47,6 +68,7 @@
     if (code === "KeyI") return "initiative";
     if (code === "KeyD") return "deathsave";
     if (code === "KeyH") return "state";
+    if (code === "KeyT") return "slots";
     return "";
   }
 
@@ -79,6 +101,7 @@
         const kind = rollKey(event);
         if (!kind) return;
         event.preventDefault();
+        if (choiceModal.isOpen()) return;
         returnTo = document.activeElement;
         try {
           window.parent.postMessage({ r20a11yRollShortcut: kind }, TOP_ORIGIN);
@@ -91,7 +114,13 @@
 
     window.addEventListener("message", (event) => {
       if (event.origin !== TOP_ORIGIN) return;
-      if (event.data && event.data.r20a11yRollShortcutDone) restore();
+      const done = event.data && event.data.r20a11yRollShortcutDone;
+      if (!done) return;
+      restore();
+      // A readout is spoken here, in the frame the user is actually in, the
+      // same way the chat shortcuts hand their result back down.
+      const say = event.data.r20a11ySay;
+      if (say) announce(say);
     });
 
     return;
@@ -137,32 +166,6 @@
     ["Charisma Save", "charisma_save"],
   ];
 
-  // --- The current character --------------------------------------------
-
-  /**
-   * The first character the current player controls, by name, or "".
-   *
-   * Read from `#speakingas`, the VTT's "Speak As" select: Roll20 lists the
-   * player plus every character they can control, so the first option whose
-   * value starts "character|" is the player's own character. Sorting the names
-   * again makes "first" mean "first alphabetically" regardless of the order
-   * Roll20 chose.
-   */
-  function currentCharacterName() {
-    const sel = document.querySelector("#speakingas");
-    if (!sel || !sel.options) return "";
-    const names = [];
-    for (const opt of sel.options) {
-      if (String(opt.value || "").indexOf("character|") === 0) {
-        const name = (opt.text || "").trim();
-        if (name) names.push(name);
-      }
-    }
-    if (!names.length) return "";
-    names.sort((a, b) => a.localeCompare(b));
-    return names[0];
-  }
-
   function sendChat(text, before, success) {
     const send = window.Roll20A11y.sendChatText;
     if (typeof send === "function") {
@@ -173,174 +176,33 @@
     }
   }
 
-  // --- The modal --------------------------------------------------------
-  //
-  // A native <dialog>.showModal() is what "aria modal" asks for: the platform
-  // exposes it with role="dialog" and aria-modal, makes the rest of the page
-  // inert (which is the focus trap), fires `cancel` on Escape, and returns
-  // focus to whatever had it before the dialog opened.
-  //
-  // The control inside is an ARIA listbox, not a <select>. A native select
-  // cannot give the wanted reading: in Chrome a collapsed one commits the new
-  // value on the very first Down arrow, and the `showPicker()` workaround opens
-  // a popup a screen reader cannot read. A listbox announces every option as
-  // focus moves through it, and commits only on Enter, Space, or a click.
-
-  let dialog = null;
-  let titleEl = null;
-  let labelEl = null;
-  let listbox = null;
-  let options = [];
-  let activeIndex = 0;
-  let activeName = "";
-  let lastFocus = null;
-  let pendingSheet = null;
-
-  function ensureModal() {
-    if (dialog) return;
-    dialog = document.createElement("dialog");
-    dialog.className = CLASS_PREFIX + "-modal";
-
-    titleEl = document.createElement("h2");
-    titleEl.id = CLASS_PREFIX + "-roll-title";
-    dialog.setAttribute("aria-labelledby", titleEl.id);
-    dialog.appendChild(titleEl);
-
-    labelEl = document.createElement("span");
-    labelEl.id = CLASS_PREFIX + "-roll-label";
-
-    listbox = document.createElement("div");
-    listbox.setAttribute("role", "listbox");
-    listbox.setAttribute("aria-labelledby", labelEl.id);
-
-    dialog.appendChild(labelEl);
-    dialog.appendChild(listbox);
-
-    const closeBtn = document.createElement("button");
-    closeBtn.type = "button";
-    closeBtn.className = CLASS_PREFIX + "-btn";
-    closeBtn.textContent = "Close";
-    dialog.appendChild(closeBtn);
-
-    document.body.appendChild(dialog);
-
-    // Escape on a modal dialog fires `cancel`; the default would close the
-    // dialog without our cleanup, so it is stopped and closed here instead.
-    dialog.addEventListener("cancel", (event) => {
-      event.preventDefault();
-      closeModal(false, "");
-    });
-
-    listbox.addEventListener("keydown", (event) => {
-      const key = event.key;
-      if (key === "ArrowDown") {
-        event.preventDefault();
-        setActive(activeIndex + 1);
-      } else if (key === "ArrowUp") {
-        event.preventDefault();
-        setActive(activeIndex - 1);
-      } else if (key === "Home") {
-        event.preventDefault();
-        setActive(0);
-      } else if (key === "End") {
-        event.preventDefault();
-        setActive(options.length - 1);
-      } else if (key === "Enter" || key === " ") {
-        event.preventDefault();
-        commit();
-      }
-    });
-
-    listbox.addEventListener("click", (event) => {
-      const opt =
-        event.target && event.target.closest
-          ? event.target.closest('[role="option"]')
-          : null;
-      if (!opt) return;
-      const i = options.indexOf(opt);
-      if (i >= 0) setActive(i);
-      commit();
-    });
-
-    closeBtn.addEventListener("click", () => closeModal(false, ""));
-  }
+  // --- The dropdowns ----------------------------------------------------
 
   /**
-   * Move the active option to `i`, keeping a roving tabindex: exactly one
-   * option is a tab stop at a time. Focusing the option is what reads it.
+   * Build the list and open it. `frame` is the sheet frame that forwarded the
+   * key, or null when it was pressed here — `remoteModal` opens the dialog in
+   * whichever of the two that is, and owns the focus hand-back from there.
    */
-  function setActive(i) {
-    if (!options.length || i < 0 || i >= options.length) return;
-    if (activeIndex >= 0 && activeIndex < options.length && options[activeIndex]) {
-      options[activeIndex].setAttribute("tabindex", "-1");
-      options[activeIndex].setAttribute("aria-selected", "false");
-    }
-    activeIndex = i;
-    options[i].setAttribute("tabindex", "0");
-    options[i].setAttribute("aria-selected", "true");
-    options[i].focus();
-  }
+  function openModal(kind, frame) {
+    if (choiceModal.isOpen()) return;
 
-  /** Roll the active option and close the modal. */
-  function commit() {
-    if (activeIndex < 0 || activeIndex >= options.length) return;
-    closeModal(true, options[activeIndex].dataset.value);
-  }
+    // Read once, up front, so a roll cannot be sent as a different character
+    // than the one the dialog was built for.
+    const name = currentCharacterName();
+    if (!name) return remoteModal.fail(frame, "You have no character to roll as.");
 
-  /** Open the modal for a roll kind. Returns false when it cannot open. */
-  function openModal(kind) {
-    ensureModal();
-    if (dialog.open) return false;
-    activeName = currentCharacterName();
-    if (!activeName) {
-      announce("You have no character to roll as.");
-      return false;
-    }
-
-    const items = kind === "skill" ? SKILLS : ABILITIES;
-    titleEl.textContent = kind === "skill" ? "Skill roll" : "Ability roll";
-    labelEl.textContent = kind === "skill" ? "Choose a skill" : "Choose an ability";
-    listbox.textContent = "";
-    options = [];
-    items.forEach(([display, attr], i) => {
-      const opt = document.createElement("div");
-      opt.setAttribute("role", "option");
-      // The first option is the tab stop so showModal autofocuses the listbox
-      // rather than the Close button; setActive moves the roving tabindex.
-      opt.setAttribute("tabindex", i === 0 ? "0" : "-1");
-      opt.setAttribute("aria-selected", i === 0 ? "true" : "false");
-      opt.textContent = display;
-      opt.dataset.value = attr;
-      listbox.appendChild(opt);
-      options.push(opt);
+    remoteModal.open({
+      frame,
+      title: kind === "skill" ? "Skill roll" : "Ability roll",
+      label: kind === "skill" ? "Choose a skill" : "Choose an ability",
+      items: (kind === "skill" ? SKILLS : ABILITIES).map(([display, attr]) => ({
+        display,
+        value: attr,
+      })),
+      onCommit: (value) => {
+        if (value) sendChat("%{" + name + "|" + value + "}", null, "");
+      },
     });
-    activeIndex = 0;
-
-    lastFocus = document.activeElement;
-    dialog.showModal();
-    options[0].focus();
-    return true;
-  }
-
-  function closeModal(doSend, value) {
-    if (!dialog || !dialog.open) return;
-    dialog.close();
-    if (doSend && value && activeName) {
-      sendChat("%{" + activeName + "|" + value + "}", lastFocus, "");
-    }
-    // Don't rely on the dialog's own focus restoration — put focus back on the
-    // element that had it before the modal opened. For a forwarded key that
-    // element is the sheet <iframe>; `replyDone` then lets the sheet frame
-    // restore the control inside it.
-    if (
-      lastFocus &&
-      lastFocus.isConnected &&
-      lastFocus.focus &&
-      document.activeElement !== lastFocus
-    ) {
-      lastFocus.focus();
-    }
-    replyDone();
   }
 
   // --- Direct sends (initiative, death save, state) --------------------
@@ -366,44 +228,87 @@
     sendDirect("%{NAME|death_save}");
   }
 
-  function sendState() {
-    sendDirect(
-      '/w "NAME" HP @{NAME|hp} out of @{NAME|hp|max}, ' +
-      'with @{NAME|hp_temp} temp HP, AC is at @{NAME|ac}'
-    );
+  // --- Readouts (HP and AC, spell slots) --------------------------------
+  //
+  // Both read the character model rather than asking Roll20 to tell us in chat.
+  // Nothing is sent, so nothing lands in the log and the rest of the table
+  // learns nothing.
+
+  async function readCharacter() {
+    const name = currentCharacterName();
+    if (!name) return { error: "You have no character to roll as." };
+    const data = await requestCharacter(name);
+    if (!data || !data.integrants) {
+      debug("rollshortcuts", "no model: " + ((data && data.error) || "timeout"));
+      return { error: "Could not read your character." };
+    }
+    return { data };
+  }
+
+  async function speakState() {
+    const { error, data } = await readCharacter();
+    if (error) return error;
+    const text = characterRolls.stateText(data.meta, data.hitpoints);
+    return text || "Could not read your hit points or armour class.";
+  }
+
+  async function speakSlots() {
+    const { error, data } = await readCharacter();
+    if (error) return error;
+    return characterRolls.spellSlotText(data.integrants, data.spellSlots);
   }
 
   // --- Routing ----------------------------------------------------------
 
-  // Tell the sheet frame (when the shortcut came from it) that the action has
-  // finished and it can take focus back.
-  function replyDone() {
-    if (!pendingSheet) return;
-    try {
-      pendingSheet.postMessage({ r20a11yRollShortcutDone: true }, SHEET_ORIGIN);
-    } catch (e) {
-      /* frame unreachable; the roll still went */
-    }
+  // The sheet frame awaiting a reply, or null when the key was pressed here.
+  // Only the non-dialog kinds use this: a dropdown's focus is handled entirely
+  // inside the frame it opened in, by lib/remote-modal.js.
+  let pendingSheet = null;
+
+  /**
+   * Tell the sheet frame it may take focus back, carrying anything to speak so
+   * it is announced where the user is. With no sheet frame waiting, `say` is
+   * announced here instead.
+   */
+  function replyDone(say) {
+    const frame = pendingSheet;
     pendingSheet = null;
+    if (frame) {
+      try {
+        frame.postMessage(
+          { r20a11yRollShortcutDone: true, r20a11ySay: say || "" },
+          SHEET_ORIGIN
+        );
+        return;
+      } catch (e) {
+        /* frame unreachable; fall through and speak here instead */
+      }
+    }
+    if (say) announce(say);
   }
 
-  function doShortcut(kind) {
-    if (kind === "initiative") {
-      sendInitiative();
-      replyDone();
+  function doShortcut(kind, frame) {
+    if (kind === "skill" || kind === "ability") {
+      openModal(kind, frame);
       return;
     }
-    if (kind === "deathsave") {
-      sendDeathSave();
-      replyDone();
-      return;
-    }
+
+    pendingSheet = frame || null;
+
     if (kind === "state") {
-      sendState();
-      replyDone();
+      speakState().then(replyDone);
       return;
     }
-    if (!openModal(kind)) replyDone();
+    if (kind === "slots") {
+      speakSlots().then(replyDone);
+      return;
+    }
+    // A roll that goes straight to chat. Its result arrives in this frame's
+    // log, so it is claimed for the frame the user is in before it is sent.
+    claimNextAnnouncement(frame);
+    if (kind === "initiative") sendInitiative();
+    else sendDeathSave();
+    replyDone();
   }
 
   document.addEventListener(
@@ -412,23 +317,7 @@
       const kind = rollKey(event);
       if (!kind) return;
       event.preventDefault();
-      doShortcut(kind);
-    },
-    true
-  );
-
-  // Escape closes the modal in one press, wherever focus sits inside it. At the
-  // document (capture) level so it also fires ahead of the listbox's own
-  // keydown handler and any focus-mode key handling the screen reader does
-  // before handing the key to the page. The dialog's native `cancel` event
-  // remains as a fallback for browsers that close on Escape themselves.
-  document.addEventListener(
-    "keydown",
-    (event) => {
-      if (!dialog || !dialog.open) return;
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      closeModal(false, "");
+      doShortcut(kind, null);
     },
     true
   );
@@ -436,8 +325,8 @@
   window.addEventListener("message", (event) => {
     if (event.origin !== SHEET_ORIGIN) return;
     const kind = event.data && event.data.r20a11yRollShortcut;
-    if (!["skill", "ability", "initiative", "deathsave", "state"].includes(kind)) return;
-    pendingSheet = event.source;
-    doShortcut(kind);
+    if (!["skill", "ability", "initiative", "deathsave", "state", "slots"].includes(kind))
+      return;
+    doShortcut(kind, event.source);
   });
 })();
