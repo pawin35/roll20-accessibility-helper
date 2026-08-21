@@ -731,8 +731,8 @@ character's attacks, named with what they will roll, and send the chosen row's
 repeating-section macro:
 
 ```
-%{Name|repeating_attack_$N_attack}       alt+W         the attack roll
-%{Name|repeating_attack_$N_attack_dmg}   alt+shift+W   its damage
+%{Name|repeating_attack_<shortID>_attack}       alt+W         the attack roll
+%{Name|repeating_attack_<shortID>_attack_dmg}   alt+shift+W   its damage
 ```
 
 ```
@@ -756,13 +756,34 @@ same one the battle grid uses, and for the same reason — see
 
 Facts established live in campaign 21893368, each of which shaped the design:
 
-- **`$N` is the position among the Attack integrants**, in
-  `Object.values(store.integrants.integrants)` order —
-  `repeating_attack_$0_attack` rolled Sacred Flame and `$2` rolled the
-  one-handed Longsword, matching that order exactly. So the list is built
-  **unfiltered and unsorted**: dropping or reordering one row silently rolls the
-  wrong attack. The bridge posts an **array**, not the object it came from, so
-  the order cannot be lost in transit.
+- **Rows are named by `shortID`, never by a `$N` index.** Roll20 picks between
+  three identifier forms by shape (`jv` in the sheet bundle): `$N` is an index,
+  a **9-character** string is a `shortID`, anything else is a UUID `_id`.
+
+  The index is a trap, and it was ours for several versions. `$N` indexes
+  `attacks.attackDisplay` — the list the COMBAT tab is *showing* — which is
+  filtered by that tab's own search box and dropdown, ordered by a
+  drag-to-reorder `attackDisplayOrder`, and built from
+  `getAllEnabledByType(ATTACK)`. So `$2` means different attacks depending on
+  what the player has typed into a filter box. It only ever appeared to work
+  because with everything equipped and no filter, `attackDisplay` order happens
+  to equal store order.
+
+  `shortID` is stable, and is what the sheet's own `buildAttackMacro` emits:
+  `` `%{${id}|repeating_attack_${D.shortID}_attack}` ``. `rowIdentifier()` in
+  `lib/character-rolls.js` prefers it and falls back to the UUID — never to an
+  index.
+- **Hidden attacks are filtered by the sheet's cascade-aware `enabled`, not
+  just `_enabled`.** The sheet's list is `getIntegrantsByTyped(ATTACK)`, which
+  is `getAllEnabledByType(ATTACK)`, and its `enabled` getter is
+  `_enabled && cascadeFlags.size === 0`. `cascadeFlags` is hydrated from the
+  integrant's serialized `cascades` field. Unequipping a weapon does **not**
+  set `_enabled: false` — the attack keeps `_enabled: true` and instead gains
+  `cascades: { "<item id>": "[\"Equip\"]" }` (one entry per source id, value a
+  JSON array of flags). `isHidden()` in `lib/character-rolls.js` drops any
+  attack with `_enabled === false` **or** a non-empty `cascades`, which is
+  exactly `cascadeFlags.size > 0`. Filtering is only safe *because* rows are
+  named by `shortID`; with indices it would have shifted every row after it.
 - **Only two action names work.** `_damage`, `_dmg`, `_roll` and `_crit` are all
   answered with *"…is not a supported action"*. Damage is `_attack_dmg`.
 - **An attack with no attack roll is still rollable.** "True Strike Bonus

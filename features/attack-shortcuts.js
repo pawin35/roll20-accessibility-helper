@@ -9,11 +9,12 @@
  * first, "Longsword (One-Handed) - damage 1d8+3" for the second — and send
  * Roll20's repeating-section macro for the chosen row:
  *
- *   %{Name|repeating_attack_$N_attack}       the attack roll
- *   %{Name|repeating_attack_$N_attack_dmg}   its damage
+ *   %{Name|repeating_attack_<shortID>_attack}       the attack roll
+ *   %{Name|repeating_attack_<shortID>_attack_dmg}   its damage
  *
- * `$N` is the row's position among the Attack integrants, and **nothing may be
- * filtered or reordered** on the way to the list or the wrong attack rolls.
+ * The row is named by its **shortID**, never by a `$N` index — see
+ * `rowIdentifier` in lib/character-rolls.js for why an index is not a stable
+ * identifier here. This is also the form the sheet's own macro builder emits.
  * Only those two action names work: `_damage`, `_dmg`, `_roll` and `_crit` are
  * all answered by Roll20 with "…is not a supported action".
  *
@@ -145,11 +146,11 @@
       label: kind === "attackdmg" ? "Choose a damage roll" : "Choose an attack",
       items: rows.map((row) => ({
         display: displayFor(kind, row),
-        value: String(row.index),
+        value: row.id,
       })),
       onCommit: (value) => {
         sendChat(
-          "%{" + rollAs + "|repeating_attack_$" + value + "_" + actionFor(kind) + "}"
+          "%{" + rollAs + "|repeating_attack_" + value + "_" + actionFor(kind) + "}"
         );
       },
     });

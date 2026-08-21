@@ -106,7 +106,7 @@ This is a **plain object keyed by UUID** (not an array). In V8/Chrome, `Object.k
 | Property | Type | Description |
 |----------|------|-------------|
 | `_id` | string | UUID, matches the object key |
-| `_enabled` | boolean | Whether this integrant is active |
+| `_enabled` | boolean | Whether this integrant is active. **Not the whole story** — the sheet's `enabled` getter is `_enabled && cascadeFlags.size === 0`, so a non-empty `cascades` hides an integrant even when `_enabled` is `true`. |
 | `type` | string | The integrant type (see table below) |
 | `name` | string | Display name |
 | `label` | string | Optional label/tag |
@@ -116,7 +116,7 @@ This is a **plain object keyed by UUID** (not an array). In V8/Chrome, `Object.k
 | `source` | string | Origin: `"Class"`, `"Species"`, `"Item"`, `"Features"`, `"Custom"`, `""` |
 | `compendiumPageID` | string | Link to compendium entry |
 | `createdTime` | number | Unix timestamp (ms) |
-| `cascades` | object | Trigger cascade relationships |
+| `cascades` | object | Map of source id → JSON string array of flags, e.g. `{ "K1K60PvMnrQgMHmIOeWBm": "[\"Equip\"]" }` on an attack whose weapon was unequipped. Non-empty means the sheet hides the integrant (its `enabled` is false). Flags seen: `"Equip"`, `"Parent"`, `"Overwrite"`, `"Activate"`, `"Prepared"`. |
 | `relations` | object | Cross-references to other integrants |
 
 ### Integrant type counts (example character)
@@ -352,8 +352,7 @@ var items = Object.values(integrants).filter(i => i.type === "Item");
 | `weaponData` | `{ category: "Melee", training: "Martial", type: "Longsword" }` — **null on non-weapons.** `training` and `type` are what a `category: "Weapon"` Proficiency integrant matches against, so this is how you tell whether an attack adds the proficiency bonus. |
 | `properties` | JSON string array, e.g. `"[\"Versatile (1d10)\"]"` |
 | `armorData` / `shieldData` | The equivalents for armor and shields |
-| `equipData` | Equipped state only — `{ equippable, equipped }`. Carries no weapon category. |
-| `shieldData` | Shield-specific data |
+| `equipData` | Equipped state — `{ equippable, equipped }`. Unequipping a weapon sets `equipped: false` here and writes a `cascades: { "<item id>": "[\"Equip\"]" }` flag onto each of its Attack children; the attack's own `_enabled` stays `true`. |
 | `cost` | Purchase cost |
 | `weight` | Item weight |
 | `quantity` | Stack count |
