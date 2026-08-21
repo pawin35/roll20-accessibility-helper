@@ -29,19 +29,30 @@
     labelFrom,
     hiddenSpan,
     presentational,
+    INCREMENTER,
   } = window.Roll20A11y;
+
+  // Roll20 mounts a second, 0x0 sheet iframe running this same file over a full
+  // duplicate of the markup. Converting there rewrites a panel nobody can see,
+  // and — worse — the failure announcement at the bottom of this file would be
+  // spoken on behalf of a frame that was never going to work. A frame whose
+  // body has no size is that ghost, and does nothing at all. (Same guard as
+  // features/roll-mode-keys.js.)
+  if (!document.body || (!document.body.offsetWidth && !document.body.offsetHeight)) {
+    debug("abilities", "ghost sheet frame, abilities table not built");
+    return;
+  }
 
   const SEL_PANEL = ".inline-abilities-panel__ability-items";
   const SEL_ROW = ".inline-ability";
-  // The score control is a PolyIncrementer, not the PolyInput the minified
-  // source suggested. It matters twice over: this selector is what identifies
-  // a row, and unlike PolyInput the incrementer does *not* give its input an
-  // aria-label. Its caption is a <label role="label">, and `role="label"` is
-  // not a real ARIA role, so it overrides the <label> element's own semantics
-  // and names nothing — leaving six unnamed spinbuttons on the panel.
-  const SEL_SCORE = '[data-testid="poly-incrementer"]';
-  const SEL_SCORE_LABEL = ".poly-incrementer__label";
-  const SEL_SCORE_INPUT = ".poly-incrementer__input";
+  // The score control is an incrementer, not the PolyInput the minified source
+  // suggested, and this selector is what identifies a row — so when Roll20
+  // moved ability scores from PolyIncrementer to UtilityIncrementer, every row
+  // failed conversion and the panel announced itself broken. `INCREMENTER` in
+  // lib/core.js matches either; see the note there.
+  const SEL_SCORE = INCREMENTER.BOX;
+  const SEL_SCORE_LABEL = INCREMENTER.LABEL;
+  const SEL_SCORE_INPUT = INCREMENTER.INPUT;
   const SEL_BADGES = ".inline-ability__badges";
   const SEL_MOD = ".inline-ability__badges--mod";
   const SEL_SAVE = ".inline-ability__badges--save";

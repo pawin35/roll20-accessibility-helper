@@ -28,8 +28,15 @@
 (function () {
   "use strict";
 
-  const { debug, enhance, markOnce, presentational, setColumn, labelFrom } =
-    window.Roll20A11y;
+  const {
+    debug,
+    enhance,
+    markOnce,
+    presentational,
+    setColumn,
+    labelFrom,
+    INCREMENTER,
+  } = window.Roll20A11y;
 
   const SEL_ROW = ".item-item";
   const SEL_LIST = ".draggable-list";
@@ -115,8 +122,8 @@
     // The steppers announce as their icon names. The row already says which
     // item this is, so the names stay short.
     const steppers = [
-      [".poly-incrementer__button--increment", "Increase quantity"],
-      [".poly-incrementer__button--decrement", "Decrease quantity"],
+      [INCREMENTER.INCREASE, "Increase quantity"],
+      [INCREMENTER.DECREASE, "Decrease quantity"],
     ];
     for (const [selector, label] of steppers) {
       const button = qty.querySelector(selector);

@@ -10,6 +10,10 @@
  *        <label class="poly-incrementer__label" role="label">Current</label>
  *        <input class="poly-incrementer__input" role="spinbutton">
  *
+ * Roll20 also ships a structurally identical `UtilityIncrementer` with
+ * `utility-` in place of `poly-` throughout. `INCREMENTER` in lib/core.js
+ * matches either.
+ *
  *    `role="label"` is not a real ARIA role, so it overrides the <label>
  *    element's own semantics and the input ends up with no accessible name.
  *    This affects HP current / max / temp, the heal-or-damage amount, the hit
@@ -30,11 +34,12 @@
 (function () {
   "use strict";
 
-  const { debug, enhance, markOnce, labelFrom } = window.Roll20A11y;
+  const { debug, enhance, markOnce, labelFrom, INCREMENTER } = window.Roll20A11y;
 
-  const SEL_BOX = '[data-testid="poly-incrementer"]';
-  const SEL_CAPTION = ".poly-incrementer__label";
-  const SEL_INPUT = ".poly-incrementer__input";
+  // Either stepper component; see INCREMENTER in lib/core.js.
+  const SEL_BOX = INCREMENTER.BOX;
+  const SEL_CAPTION = INCREMENTER.LABEL;
+  const SEL_INPUT = INCREMENTER.INPUT;
 
   // Captions that merely repeat the accessible name of the control beside
   // them. Listed explicitly rather than detected: hiding text is only safe

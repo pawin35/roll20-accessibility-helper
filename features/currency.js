@@ -12,6 +12,10 @@
  *       <button class="poly-incrementer__button--increment">  icon only
  *       <button class="poly-incrementer__button--decrement">  icon only
  *
+ * Roll20 also ships a structurally identical `UtilityIncrementer` with
+ * `utility-` in place of `poly-` throughout. `INCREMENTER` in lib/core.js
+ * matches either, so the purse keeps working whichever the sheet renders.
+ *
  * The spinbutton input is already named by control-labels.js, but the two
  * +/- buttons have no accessible name at all — they announce as their icon —
  * and clicking one changes the total without any spoken result. So each button
@@ -27,13 +31,14 @@
 (function () {
   "use strict";
 
-  const { announce, debug, enhance } = window.Roll20A11y;
+  const { announce, debug, enhance, INCREMENTER } = window.Roll20A11y;
 
   const SEL_DENOM = ".edit-purse__currency-edit";
-  const SEL_LABEL = ".poly-incrementer__label";
-  const SEL_INPUT = ".poly-incrementer__input";
-  const SEL_INC = ".poly-incrementer__button--increment";
-  const SEL_DEC = ".poly-incrementer__button--decrement";
+  // Either stepper component; see INCREMENTER in lib/core.js.
+  const SEL_LABEL = INCREMENTER.LABEL;
+  const SEL_INPUT = INCREMENTER.INPUT;
+  const SEL_INC = INCREMENTER.INCREASE;
+  const SEL_DEC = INCREMENTER.DECREASE;
 
   /** The denomination's name, from the incrementer's own caption. */
   function nameOf(denom) {
