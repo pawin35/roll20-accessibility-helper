@@ -91,14 +91,27 @@
    * back to the player's own first controlled character (alphabetically, the
    * same rule `currentCharacterName` uses) so a missing or stale dropdown does
    * not make the shortcut dead.
+   *
+   * **A name is not unique.** A campaign can hold two characters with the same
+   * name — commonly a player's own plus a GM-owned NPC copy — so a bare name
+   * match can land on one this player does not control. Reading its store then
+   * comes back empty and `showDialog("sheet")` rejects with a Firebase
+   * `permission_denied`, which looked exactly like `alt+shift+E` being broken.
+   * A name match the player *controls* is therefore preferred over one they do
+   * not.
    */
   function findCharacter(name) {
+    var byNameMine = null;
     var byName = null;
     var mine = [];
     eachCharacter(function (character) {
-      if (name && !byName && character.get("name") === name) byName = character;
+      if (name && character.get("name") === name) {
+        if (!byName) byName = character;
+        if (!byNameMine && isMine(character)) byNameMine = character;
+      }
       if (isMine(character)) mine.push(character);
     });
+    if (byNameMine) return byNameMine;
     if (byName) return byName;
     if (!mine.length) return null;
     mine.sort(function (a, b) {
@@ -164,15 +177,28 @@
    * `d20.engine.openCharacterForToken(id)` — the latter was verified live to
    * return without error and do nothing at all. (`window.d20` is undefined on
    * the VTT besides; it lives on `CharacterSheetsManagerSingleton.d20`.)
+   *
+   * Newer Roll20 returns a promise here and *rejects* it — Firebase
+   * `permission_denied` — when this player cannot open the character, while the
+   * call itself throws nothing. Older builds return `undefined` and just work.
+   * So the outcome is reported from the promise when there is one: `onOpen()`
+   * once the dialog is up, `onFail()` if it rejects. A missing method or a
+   * synchronous throw is `onFail()` too. Callers that predate the promise still
+   * get `onOpen()` synchronously.
    */
-  function openSheet(character) {
-    if (!character || !character.view || !character.view.showDialog) return false;
+  function openSheet(character, onOpen, onFail) {
+    if (!character || !character.view || !character.view.showDialog) return onFail();
+    var result;
     try {
-      character.view.showDialog("sheet");
-      return true;
+      result = character.view.showDialog("sheet");
     } catch (e) {
-      return false;
+      return onFail();
     }
+    if (result && typeof result.then === "function") {
+      result.then(function () { onOpen(); }, function () { onFail(); });
+      return;
+    }
+    onOpen();
   }
 
   // --- Requests ----------------------------------------------------------
@@ -343,10 +369,16 @@
     if (!character) {
       return post({ r20a11yOpenSheetResult: { state: "no-character" } });
     }
-    if (!openSheet(character)) {
-      return post({ r20a11yOpenSheetResult: { state: "failed" } });
-    }
-    post({ r20a11yOpenSheetResult: { state: "opening", name: character.get("name") || "" } });
+    var name = character.get("name") || "";
+    openSheet(
+      character,
+      function () {
+        post({ r20a11yOpenSheetResult: { state: "opening", name: name } });
+      },
+      function () {
+        post({ r20a11yOpenSheetResult: { state: "failed" } });
+      }
+    );
   }
 
   window.addEventListener("message", function (event) {
