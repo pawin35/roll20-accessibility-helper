@@ -5,18 +5,22 @@
  * row, which is why "Add New 1st Level Spell" sits between them rather than
  * inside any table.
  *
- *   .spell-list                       one per level
- *     .list__list
- *       .list__item
- *         .spell-item                 the row
- *           .spell-item__top
- *             .spell-item__prepare-name-chips   name, chat button, ritual /
- *                                               concentration chips
- *             .spell-item__range                "10 feet"
- *             .spell-item__attack | __dc        to-hit, or a save like DEX 13
- *             .spell-item__damage-list |        "1d8"
- *               __healing
- *             .spell-item__icons                edit, expand
+  *   .spell-list                       one per level
+  *     .list__list
+  *       .list__item
+  *         .spell-item                 the row (cells are direct children;
+  *                                     there used to be a .spell-item__top
+  *                                     wrapper, removed by Roll20)
+  *           .spell-item__name-chips           name, chat button, ritual /
+  *                                             concentration chips
+  *           .spell-item__range                "10 feet"
+  *           .spell-item__hit-dc               to-hit ("+5 Attack"), or a save
+  *                                             like DEX 13
+  *           .spell-item__damage               damage ("1d8") or healing,
+  *                                             inside .damage-buttons
+  *           .spell-item__icon-buttons         edit, expand
+  *           .spell-item__expanded (on expand)
+  *             .spell-item__description
  *
  * Column names come from Roll20's own header spans (Name / Range / Hit / DC /
  * Damage) rather than being invented, with "Actions" added for the icons,
@@ -42,18 +46,20 @@
   const SEL_LIST = ".spell-list";
   const SEL_ROW = SEL_LIST + " .spell-item";
   const SEL_TOP = ".spell-item__top";
+  const SEL_NAME = ".spell-item__prepare-name-chips, .spell-item__name-chips";
   const SEL_HEADER = "[class*='spells__table-header']";
 
   const COLUMNS = ["Name", "Range", "Hit / DC", "Damage", "Actions"];
 
-  // Slot selectors in DOM order, each paired with its column. Several are
-  // alternatives — a spell has either an attack roll or a save DC, and either
-  // damage or healing.
+  // Slot selectors in DOM order, each paired with its column. Hit/DC and
+  // damage/healing each merged into one container (Roll20 renamed
+  // __attack/__dc to __hit-dc, __damage-list/__healing to __damage, and
+  // __icons to __icon-buttons); the old names are kept as fallbacks.
   const SLOTS = [
     [".spell-item__range", 2],
-    [".spell-item__attack, .spell-item__dc", 3],
-    [".spell-item__damage-list, .spell-item__healing", 4],
-    [".spell-item__icons", 5],
+    [".spell-item__attack, .spell-item__dc, .spell-item__hit-dc", 3],
+    [".spell-item__damage-list, .spell-item__healing, .spell-item__damage", 4],
+    [".spell-item__icons, .spell-item__icon-buttons", 5],
   ];
 
   let validated = 0;
@@ -84,11 +90,14 @@
   enhance(SEL_ROW, (row) => {
     if (!markOnce(row, "spells-table")) return;
 
+    // Roll20 dropped the .spell-item__top wrapper: cells are now direct
+    // children of the row. Fall back to the row itself when it is gone.
     const top = row.querySelector(SEL_TOP);
-    const name = row.querySelector(".spell-item__prepare-name-chips");
+    const container = top || row;
+    const name = row.querySelector(SEL_NAME);
 
     // Fail safe: an unrecognised row keeps Roll20's markup untouched.
-    if (!top || !name) {
+    if (!name) {
       skipped++;
       return;
     }
@@ -103,7 +112,7 @@
 
     for (let i = 0; i < SLOTS.length; i++) {
       const [selector, column] = SLOTS[i];
-      const cell = top.querySelector(":scope > " + selector.split(", ").join(", :scope > "));
+      const cell = container.querySelector(":scope > " + selector.split(", ").join(", :scope > "));
       if (cell) {
         cell.setAttribute("role", "cell");
         setColumn(cell, column);
@@ -113,13 +122,13 @@
       // index give the same answer.
       let anchor = null;
       for (let j = i + 1; j < SLOTS.length && !anchor; j++) {
-        anchor = top.querySelector(
+        anchor = container.querySelector(
           ":scope > " + SLOTS[j][0].split(", ").join(", :scope > ")
         );
       }
       const cellFiller = filler(column);
       if (anchor) anchor.insertAdjacentElement("beforebegin", cellFiller);
-      else top.appendChild(cellFiller);
+      else container.appendChild(cellFiller);
     }
 
     // The description only exists while a row is expanded, so it is a trailing
